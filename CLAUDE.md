@@ -5,7 +5,7 @@ the owner works, the rules for the code, and where the work has got to.
 `README.md` describes the program for its users and developers; this file
 is for Claude. Read both.
 
-Last updated: 10 November 2026, 22:00.
+Last updated: 10 November 2026, 23:10.
 
 ## Starting a new conversation
 
@@ -108,7 +108,10 @@ line with peardox/SRDelphiFMX's on 8 November 2026).
   not use anything in `src/ui`, and must not know about the main form,
   `settings.json` keys or menus. They are copies of Sprite3D's units of the
   same names, changed only where Sprite3D's off-screen pass was left out
-  (`Sprite3DAxes`, `Sprite3DSweep`) or its licences were (`Sprite3DLicences`);
+  (`Sprite3DSweep`) or its licences were (`Sprite3DLicences`);
+  `Sprite3DFolderDialog`, `Sprite3DGrid`, `Sprite3DOffscreen`,
+  `Sprite3DBackground` and `Sprite3DResample` are unchanged;
+  `Sprite3DAssetCache` is Sprite3DBuilder's own;
   `Sprite3DAnimFrames` holds the two frame-source classes from Sprite3D's
   `Sprite3DAnimCapture` that `Sprite3DSweep` needs. Keep them close to
   Sprite3D's, so fixes can be carried either way, and say when a fix here
@@ -116,7 +119,7 @@ line with peardox/SRDelphiFMX's on 8 November 2026).
 - `src/common`: small helpers shared across projects (`OSPaths`,
   `JsonText`, `GpuPreference`, `DisplayData`), unchanged from Sprite3D.
 - `src/ui`: the forms and the application's own rules. Non-visual
-  application logic (settings, model slots, themes) goes in
+  application logic (settings, the assets folder, themes) goes in
   `Sprite3DBuilderHelpers.pas`, not in a form.
 - `src/styles`: the theme styles, compiled into a resource by the
   pre-build event `buildstyles.cmd`, which also builds `licences/`.
@@ -359,42 +362,84 @@ gone up.
 
 ## Where the work is
 
-### State (10 November 2026, 22:00)
+### State (10 November 2026, 22:30)
 
-**Builder1**, the first delivery: the repository made from Sprite3D at
-GitHub `main` `f678433` ("debug->Export..."), cut down as the owner asked
-(10 November, 21:34):
+GitHub `main` is at `3da83fa`, "First commit": **Builder1** as delivered
+(the cut-down of Sprite3D at its `f678433`). Since then, as zips:
 
-- One model tab, **Level** (Sprite3D's Static tab), and the **Debug** tab,
-  always shown. No Animated or Results tab.
-- No File, Debug menu and nothing in it (Tools, glTF, benchmark, compare,
-  frame borders). No Grab, Save As Icon, exports of any kind, batch
-  controls, Directions, animation settings, background or its dialog,
-  projects, Open Directory, file associations, FFmpeg, OpenH264 or
-  GLTFLib.
-- The background is always the floor grid: Show grid and the `showGrid`
-  setting are gone, and `ApplyShowGrid` always shows it.
-- **Static models only** (owner, 21:48: "animations will come later"):
-  `BuildLoadModel` ignores the animation names `LoadModelFile` returns, so
-  nothing is measured and every model goes into the Models list.
-  Animations Used and the animation settings went with the Animated tab;
-  Statics Used is now **Models, Models Used**.
-- The list has no export ticks; Clear is its own button below it.
-  Show Animation Volume is **Show Combined Volume**: every listed model
-  joined, shown while two or more are listed, never fitted to.
-- The start-up action is None by default; settings are kept in
-  `Sprite3DBuilder`'s own folder, apart from Sprite3D's.
+**Builder2** (22:30; owner, 22:09-22:13), follows Builder1:
 
-Not compiled yet. Things to watch at the first compile: anything left
-behind by the cut (an identifier from a removed unit), `FMX.Edit` in the
-main form's `uses` for `TCustomEdit`, and the `.dproj`, made from
-Sprite3D's with its deployment of `dlls/` and its project outputs removed
-(the IDE adds its own outputs back). The project's `.res`
-(`src/Sprite3DBuilder.res`) is not in the repository; the IDE makes it.
+- **No models are opened any more.** File, Open Model, the Models menu
+  (Models Used), the Models list side panel with Clear, drag-and-drop, files
+  the system asks to open (`Sprite3DOpenFiles`, the single-instance hand-off)
+  and the whole load pipeline in the main form (load dialog, timer, slots,
+  name clash) are gone, with `Sprite3DBuilderLoadForm`,
+  `Sprite3DBuilderNameClashForm`, `Sprite3DBuilderAnimationsUsedForm` and
+  `Sprite3DAxes`. `LoadModelFile`, `StartModelFileRead` and `IsModelFile` stay
+  in the Helpers, for the pieces to come. Settings lost `startupAction`,
+  `lastModel`, `showAxes`, `showSweptVolume` and `showCombinedSweptVolume`,
+  and the Settings dialog its Startup group.
+- **An empty level at start-up.** `BuildLevel` makes `FLevel`, a `TDummy` in
+  the viewport turned 180 degrees about X (so Y is up inside it, as in the
+  kits, with the floor at Y = 0), and `FGrid`, a `TModelGrid` on it at
+  `gridSize` (new setting, default 2, by hand only). The camera is fitted to
+  `ViewVolume`: 10 cells across and 2 high, swept about the centre.
+  `PlaceModel` and its centring are gone.
+- **View** keeps Camera, Lights, Projection and Show bounding box, which
+  boxes each `TGorillaModel` under `FLevel` (none yet).
+- **File, Open Asset Folder...** (owner's name for it, 22:13): the folder
+  dialog (`Sprite3DFolderDialog`, copied from Sprite3D) opens in
+  `assetFolder` (new setting) or `AssetsFolder`, an `assets` folder found
+  beside the program or up to five folders above; the folders chosen go in
+  `FAssetFolders` and their models, by `AssetModelFiles`, are listed in the
+  Debug tab. They will open on a second form the owner is about to design.
+  Freed on Android and iOS, which have no folder dialog.
 
-**Next**, once it builds: a scene grid of its own, independent of the
-model shown, at the kit's spacing; models kept at their own origins rather
-than centred by `PlaceModel`; then placing pieces.
+**Builder3** (22:55; owner, 22:41: thumbnails of every model of the asset
+folder, in groups, cached by a content hash below settings.json; dragging
+onto the view is stage two, Builder4), follows Builder2:
+
+- `src/ui/Sprite3DBuilderAssetsForm` (`TAssetsForm`, caption Assets): made
+  by the main form the first time a folder is opened (`FAssetsForm`, owned
+  by it), shown non-modally. `OpenFolders` hashes the models on a worker
+  thread (`TSprite3DAssetHasher`), shows the cached ones at once and makes
+  the rest one at a time in its own `TGorillaViewport` (256 square, top
+  left) with its own `TSpritelyOrbitalCamera`: model upright (X 180),
+  isometric (inclination 35.264, camera azimuth 315), orthographic,
+  `FitToBounds` with a 6% margin on the model's own box from
+  `LoadModelFile` made even in X and Z about its `RotationCenter`
+  (Builder3a, owner: centred on the centre of rotation), `TSprite3DOffscreen` at `THUMBNAIL_SIZE`
+  (256), transparent. Tiles laid out by hand (`LayoutTiles`), headings per
+  group (`AssetGroupName`, plurals merged with their singulars), clicking
+  selects. Closing it stops the queue. It logs to the Debug tab through
+  `OnLog`.
+- `src/lib/Sprite3DAssetCache` (new): `TSprite3DAssetHasher` (SHA-256 of
+  the model file, then, for `.gltf`, each buffer and image `uri` and that
+  file's digest, digests kept per hasher so a shared texture is read once),
+  `TSprite3DAssetMeta`, `SaveAssetMeta` (through a `.tmp`),
+  `LoadAssetMeta` (checks every value; format `Sprite3D asset`, version 1).
+- Cache: `TSprite3DAppSettings.ThumbnailFolder`, `thumbnails` beside
+  settings.json, `<hash>.png` and `<hash>.json`. The metadata's `file` is
+  where the model was when its thumbnail was made.
+- Back from Sprite3D, unchanged: `Sprite3DOffscreen`, `Sprite3DBackground`,
+  `Sprite3DResample`.
+
+Files deleted by Builder2 (`git rm`): `src/lib/Sprite3DAxes.pas`,
+`src/lib/Sprite3DOpenFiles.pas`, `src/ui/Sprite3DBuilderLoadForm.*`,
+`src/ui/Sprite3DBuilderNameClashForm.*`,
+`src/ui/Sprite3DBuilderAnimationsUsedForm.*`.
+
+None of the zips compiled yet. Things to watch at the first compile: anything
+left behind by the cuts, and the `.dproj`, made from Sprite3D's with its
+deployment of `dlls/` and its project outputs removed (the IDE adds its own
+outputs back). The project's `.res` (`src/Sprite3DBuilder.res`) is not in
+the repository; the IDE makes it.
+
+**Next, Builder4:** dragging a thumbnail from the Assets form onto the
+level, with a bounding box showing where it will go, snapped to the grid,
+and the model placed under `FLevel` on release. Kits of other scales:
+the metadata keeps each model's raw box, so a scale per kit can be worked
+out later from a reference piece.
 
 ### Test kit
 

@@ -2,7 +2,7 @@
 
 Sprite3DBuilder is a Delphi FireMonkey application that will become a level builder for 3D model kits, such as KayKit's dungeon pack. It is built on [Gorilla3D](https://www.gorilla3d.de/) and grew out of [Sprite3D](https://github.com/peardox/Sprite3D): it keeps Sprite3D's view, camera, model loading and settings, and leaves out everything Sprite3D has for making sprites (grabs, icons, exports, the Results tab, backgrounds, projects and the debug tools).
 
-This first version is the cut-down base: open models, look at them on the floor grid, and choose which are listed. Placing pieces to build a level comes next.
+It starts with an empty level: a floor grid at the kit's spacing, ready to build on. File, Open Asset Folder... shows a kit's models as thumbnails, in groups; dragging them onto the level comes next.
 
 The code is split as Sprite3D's is: everything in `src/lib` and `src/common` is independent of the application, and `src/ui` holds the forms and the application's own rules. The units in `src/lib` and `src/common` are copies of Sprite3D's, under the same names, so a fix in one can be carried to the other.
 
@@ -36,19 +36,27 @@ A build failing with *F2613 Unit 'Spritely.OrbitalCamera' not found* has not got
 
 ## Features
 
-- **Models list.** File, Open Model, dropping model files on the window, or a file the system asks the program to open, adds a model to the Models list beside the view and shows it. Opening the same file again reloads it in its place. A model whose name is listed already, from another file, is asked about: replace, ignore, or list it under a new name. Every model stays loaded, hidden while another is shown. **Clear**, below the list, empties it.
-- **Static models only.** Every model is shown, and measured, in its rest pose; animations are not listed or played yet.
-- **Floor grid.** The view always shows a grid on the model's floor; there is no other background.
-- **Models, Models Used...** chooses which of the models opened are listed, each with its swept volume as a share of them all.
+- **An empty level.** The view starts with a floor grid at the spacing kept in `settings.json` (`gridSize`, 2 units by default, a floor tile of KayKit's dungeon pack), framed in the isometric view.
+- **File, Open Asset Folder...** chooses a folder of a model kit, starting in the `assets` folder (see *Assets*), or where the last one was chosen, and shows its models on the **Assets** form (see *Thumbnails*). Desktop only: Android and iOS have no folder dialog.
 - **View, Camera.** Variable (a dialog with dials for the angles, distance, shift and rise), fixed views (Isometric, Pixel 2:1, 1/4 View, 3/4 View, Sqrt(2), Golden Ratio, Head On, Top Down, Side View), Lock Camera, and Mouse View (left-drag turns, the wheel zooms, a right click puts the normal view back).
 - **View, Lights.** The camera's headlight and a second light on the camera, each on or off.
 - **View, Projection.** Perspective, orthographic, and the oblique cavalier, cabinet, military and plan oblique projections, drawn by Spritely.
-- **View, Show bounding box / Show axes / Show Model Volume / Show Combined Volume.** The combined volume joins every listed model's, and shows while two or more are listed.
-- **Debug tab**, always there: what was loaded, what went wrong and what changed.
-- **File, Settings...**: start-up action (none, the default model, the last model), theme, the view's frame rate, minified JSON and, on Windows, the graphics processor.
+- **View, Show bounding box** will box each piece placed.
+- **Debug tab**, always there: what was chosen, what went wrong and what changed.
+- **File, Settings...**: theme, the view's frame rate, minified JSON and, on Windows, the graphics processor.
 - **File, Licences...**: the third-party licences, from the program's own resources.
 
 On Android and iOS the menu is a drawer opened from a button at the top; on Linux it is an FMX menu bar, as GTK's native one showed only first letters.
+
+## Thumbnails
+
+The Assets form shows every model of the folders chosen (not their sub-folders) as a 256 x 256 thumbnail, under a heading for each group: the first word of the model's name, before the first underscore (`wall_corner` is in *wall*), with a plural group such as *crates* put with *crate* when both are there. Clicking one shows its name, group, size in its own units and file.
+
+Each model is known by a key: the SHA-256 of its file and of every file it names (for glTF, the `uri` of its buffers and images), so a copy of a model in another folder is the same model, and any change to it, its `.bin` or its textures makes a new one. Two files with the same key are shown once, and the Debug tab says so.
+
+Thumbnails are made the first time a model is seen, one at a time, in the form's own view: loaded, turned upright, framed in the isometric view in orthographic projection with the up axis through its centre of rotation, the point it will sit on in the level, in the middle across (so a corner piece is drawn to one side, as it sits in its cell), and grabbed off screen with a transparent background, as Sprite3D's grabs are. They are kept in a `thumbnails` folder beside `settings.json`, as `<key>.png` with `<key>.json` beside it: the model's name, group, the file it was found as, the files it names, its bounding box (in its own units, so kits made at other scales can be told apart and scaled later), and how and when the thumbnail was made. The next time, every model already in the cache is shown at once. A thumbnail of another size than 256 is made again, so changing the size remakes them. Closing the form stops making them; opening the folder again carries on.
+
+The cache can be deleted at any time; nothing is lost but the time to make the thumbnails again.
 
 ## Project layout
 
@@ -56,8 +64,9 @@ On Android and iOS the menu is a drawer opened from a button at the top; on Linu
 Sprite3DBuilderGroup.groupproj   the project group
 src/
   Sprite3DBuilder.dpr/.dproj     the program
-  ui/                            the forms, and Sprite3DBuilderHelpers: settings, model slots, themes
-  lib/                           grid, axes, swept volumes, settings storage, styles, title bar, open requests
+  ui/                            the forms, and Sprite3DBuilderHelpers: settings, the assets folder, themes
+  lib/                           grid, swept volumes, off-screen grabs, asset cache, settings storage,
+                                 folder dialog, styles, title bar
   common/                        OSPaths, JsonText, GpuPreference, DisplayData
   styles/                        the theme styles and buildstyles.cmd, the pre-build step
 licences/                        third-party licences linked into the program
@@ -66,11 +75,11 @@ tools/pasdoc_check.py            checks the PasDoc comments and that sources are
 docs/licences-required.md        what each third-party part asks of a release
 ```
 
-`src/lib/Sprite3DAnimFrames.pas` is the one unit not in Sprite3D under that name: the two frame-source classes from Sprite3D's `Sprite3DAnimCapture`, which `Sprite3DSweep` needs, without the off-screen capture built on them.
+`src/lib/Sprite3DAnimFrames.pas` is the one unit not in Sprite3D under that name: the two frame-source classes from Sprite3D's `Sprite3DAnimCapture`, which `Sprite3DSweep` needs, without the off-screen capture built on them. `Sprite3DFolderDialog`, `Sprite3DOffscreen`, `Sprite3DBackground` and `Sprite3DResample` are Sprite3D's, unchanged. `Sprite3DAssetCache` is new: the content keys and the cache's metadata files.
 
 ## Assets
 
-Model kits live in `assets/`, off the repository root, one folder per kit: so far `assets/kaykit/dungeon`, KayKit's Dungeon Pack as glTF. Git ignores the whole folder, so each working copy brings its own kits; the program does not look there by itself yet, so open the models with File, Open Model or drop them on the window.
+Model kits live in `assets/`, off the repository root, one folder per kit: so far `assets/kaykit/dungeon`, KayKit's Dungeon Pack as glTF. Git ignores the whole folder, so each working copy brings its own kits. File, Open Asset Folder... starts there: the program looks for an `assets` folder beside itself and up to five folders above, so it finds the repository's when run from `src/Win64/Debug`.
 
 ## Settings
 
@@ -84,9 +93,7 @@ Settings are kept in `settings.json`, written by Neon, in a folder of Sprite3DBu
 | Android | the application's documents folder |
 | iOS | `Library/Application Support/Sprite3DBuilder` |
 
-What is kept: the View menu's ticks (bounding box, axes, Model Volume, Combined Volume, lights, projection), the camera view and the Variable view's angles, the shift, rise and distance when Variable asks for them to be kept, Mouse View's tick, the start-up action and the last model, the theme, the GPU choice, the view's frame rate and Minify JSON.
-
-The start-up action is None at first, as no sample model comes with the program; Load default model looks for `models/uvcube.glb` in the program's assets folder.
+What is kept: the View menu's ticks (bounding box, lights, projection), the camera view and the Variable view's angles, the shift, rise and distance when Variable asks for them to be kept, Mouse View's tick, the theme, the GPU choice, the view's frame rate, Minify JSON, the grid's spacing (`gridSize`, set by hand for now) and the asset folder last chosen (`assetFolder`).
 
 ## Themes
 
@@ -102,6 +109,7 @@ Every file the application opens or writes goes through `OSFriendlyPath` in `com
 
 ## Known issues
 
-- The grid belongs to the model shown and is drawn at Sprite3D's spacing of 1 unit; with no model shown there is no grid. A level builder needs a scene grid of its own, at the kit's spacing (2 units for KayKit's dungeon pack).
-- Each model is centred on its bounding box as it loads (`PlaceModel`), as Sprite3D does; kit pieces will need to keep their own origins to snap to the grid.
+- Nothing can be placed yet: the level is the grid alone. Dragging a thumbnail onto it is next.
+- On macOS and iOS, where Gorilla3D draws through Metal, a thumbnail is a screenshot of the Assets form's view, as Sprite3D's grabs are there.
+- The camera is fitted to the middle of the floor, 10 cells across, whatever is placed; it will frame the level once there is one.
 - The camera view and View menu ticks are saved when the main form is destroyed, which Android and iOS do not always do before ending an application.

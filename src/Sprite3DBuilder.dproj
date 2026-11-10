@@ -4,7 +4,7 @@
         <ProjectVersion>20.5</ProjectVersion>
         <FrameworkType>FMX</FrameworkType>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Release</Config>
+        <Config Condition="'$(Config)'==''">Debug</Config>
         <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <TargetedPlatforms>2790531</TargetedPlatforms>
         <AppType>Application</AppType>
@@ -355,12 +355,10 @@ $(PreBuildEvent)]]></PreBuildEvent>
             <FormType>fmx</FormType>
         </DCCReference>
         <DCCReference Include="ui\Sprite3DBuilderHelpers.pas"/>
-        <DCCReference Include="lib\Sprite3DAxes.pas"/>
         <DCCReference Include="lib\Sprite3DGrid.pas"/>
         <DCCReference Include="lib\Sprite3DAnimFrames.pas"/>
         <DCCReference Include="lib\Sprite3DSweep.pas"/>
         <DCCReference Include="lib\Sprite3DStorage.pas"/>
-        <DCCReference Include="lib\Sprite3DOpenFiles.pas"/>
         <DCCReference Include="ui\Sprite3DBuilderOrbitalForm.pas">
             <Form>OrbitalSettingsForm</Form>
             <FormType>fmx</FormType>
@@ -375,19 +373,16 @@ $(PreBuildEvent)]]></PreBuildEvent>
             <Form>GeneralSettingsForm</Form>
             <FormType>fmx</FormType>
         </DCCReference>
-        <DCCReference Include="ui\Sprite3DBuilderAnimationsUsedForm.pas">
-            <Form>AnimationsUsedForm</Form>
-            <FormType>fmx</FormType>
-        </DCCReference>
-        <DCCReference Include="ui\Sprite3DBuilderLoadForm.pas">
-            <Form>ModelLoadForm</Form>
-            <FormType>fmx</FormType>
-        </DCCReference>
-        <DCCReference Include="ui\Sprite3DBuilderNameClashForm.pas">
-            <Form>NameClashForm</Form>
-            <FormType>fmx</FormType>
-        </DCCReference>
         <DCCReference Include="lib\Sprite3DLicences.pas"/>
+        <DCCReference Include="lib\Sprite3DFolderDialog.pas"/>
+        <DCCReference Include="lib\Sprite3DBackground.pas"/>
+        <DCCReference Include="lib\Sprite3DResample.pas"/>
+        <DCCReference Include="lib\Sprite3DOffscreen.pas"/>
+        <DCCReference Include="lib\Sprite3DAssetCache.pas"/>
+        <DCCReference Include="ui\Sprite3DBuilderAssetsForm.pas">
+            <Form>AssetsForm</Form>
+            <FormType>fmx</FormType>
+        </DCCReference>
         <DCCReference Include="ui\Sprite3DBuilderLicencesForm.pas">
             <Form>LicencesForm</Form>
             <FormType>fmx</FormType>
@@ -1742,8 +1737,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
     <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
     <Import Project="$(MSBuildProjectName).deployproj" Condition="Exists('$(MSBuildProjectName).deployproj')"/>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Android'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1751,8 +1745,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Android64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1760,8 +1753,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='iOSDevice64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1769,8 +1761,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='iOSSimARM64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1778,8 +1769,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Linux64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1787,8 +1777,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='OSX64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1796,8 +1785,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='OSXARM64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1805,8 +1793,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win32'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1814,8 +1801,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1823,8 +1809,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='WinARM64EC'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1832,8 +1817,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Android'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1841,8 +1825,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Android64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1850,8 +1833,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='iOSDevice64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1859,8 +1841,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='iOSSimARM64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1868,8 +1849,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Linux64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1877,8 +1857,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='OSX64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1886,8 +1865,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='OSXARM64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1895,8 +1873,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Win32'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1904,8 +1881,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Win64'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1913,8 +1889,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='WinARM64EC'">
-        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;
-</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\styles\buildstyles.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>

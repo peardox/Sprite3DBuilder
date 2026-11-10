@@ -1,0 +1,832 @@
+//** @abstract(A background for a Gorilla3D view: none, a checker for transparency, a colour,
+//** a gradient or an image.)
+//**
+//** TSprite3DBackgroundSpec describes a background: its kind, its colours and the size of the
+//** checker squares. TSprite3DBackground shows one behind a viewport. It is not part of the
+//** 3D scene: it is an ordinary 2D control, a sibling placed directly behind the viewport and
+//** covering the same area, and the viewport's Color is made fully transparent, so the
+//** background shows wherever the scene draws nothing. This needs a Gorilla3D whose viewport
+//** honours the alpha of its Color, as Gorilla3D 1.5.3 does.
+//**
+//** Being 2D, the background does not depend on the camera at all: it is the same in
+//** perspective and orthographic projection, at any field of view or zoom, and it never
+//** appears in off-screen grabs, which draw the scene into a frame buffer of their own. It is
+//** painted from a bitmap, kept until the control's size, the display scale or the spec
+//** changes. The checker is drawn at the display's own pixel size, one bitmap pixel to one
+//** screen pixel, so its edges stay sharp. The gradient is drawn at no more than
+//** MaxGradientPixels pixels along its longer side and stretched smoothly to fit, as a smooth
+//** blend loses nothing by it. A Solid background needs no bitmap and is filled directly. An
+//** Image background is an image file, fitted to the view as ImageFit says, over Colour where
+//** it does not reach, drawn at the display's pixel size; the file is read once and kept
+//** (BackgroundImage) until it, or the file chosen, changes.
+//**
+//** The None kind, the default, hides the control and gives the viewport back the opaque
+//** Color it had when the background was attached, so the view looks as it did before any
+//** background existed. The Transparent kind shows a checker of two greys, the usual sign
+//** that an image is transparent there. The squares are CheckerSize logical pixels on screen,
+//** counted from the view's top-left corner, which is light.
+//**
+//** The same spec is meant for TSprite3DOffscreen.Backdrop, which gives grabs the same
+//** background: transparent for None and for Transparent, as the checker stands for, and
+//** the colour, gradient or image otherwise. NewBitmap paints a spec into a bitmap of any
+//** size for such uses, the image fitted to that size as it is to the view, so a grab shows
+//** the image as the view does.
+//**
+//** @preformatted(
+//** ViewportLayout @(or whatever holds the viewport@)
+//** |-- TSprite3DBackground   2D, behind; same area as the viewport
+//** `-- TGorillaViewport      Color fully transparent unless the kind is None
+//** )
+unit Sprite3DBackground;
+
+{
+  A background for a Gorilla3D view: none, a checker for transparency, a
+  colour, a gradient or an image.
+
+  TSprite3DBackgroundSpec describes a background: its kind, its colours and
+  the size of the checker squares. TSprite3DBackground shows one behind a
+  viewport. It is not part of the 3D scene: it is an ordinary 2D control, a
+  sibling placed directly behind the viewport and covering the same area,
+  and the viewport's Color is made fully transparent, so the background
+  shows wherever the scene draws nothing. This needs a Gorilla3D whose
+  viewport honours the alpha of its Color, as Gorilla3D 1.5.3 does.
+
+  Being 2D, the background does not depend on the camera at all: it is the
+  same in perspective and orthographic projection, at any field of view or
+  zoom, and it never appears in off-screen grabs, which draw the scene into
+  a frame buffer of their own. It is painted from a bitmap, kept until the
+  control's size, the display scale or the spec changes. The checker is
+  drawn at the display's own pixel size, one bitmap pixel to one screen
+  pixel, so its edges stay sharp. The gradient is drawn at no more than
+  MaxGradientPixels pixels along its longer side and stretched smoothly to
+  fit, as a smooth blend loses nothing by it. A Solid background needs no
+  bitmap and is filled directly. An Image background is an image file,
+  fitted to the view as ImageFit says, over Colour where it does not reach,
+  drawn at the display's pixel size; the file is read once and kept
+  (BackgroundImage) until it, or the file chosen, changes.
+
+  The None kind, the default, hides the control and gives the viewport back
+  the opaque Color it had when the background was attached, so the view
+  looks as it did before any background existed. The Transparent kind shows
+  a checker of two greys, the usual sign that an image is transparent there.
+  The squares are CheckerSize logical pixels on screen, counted from the
+  view's top-left corner, which is light.
+
+  The same spec is meant for TSprite3DOffscreen.Backdrop, which gives grabs
+  the same background: transparent for None and for Transparent, as the
+  checker stands for, and the colour, gradient or image otherwise.
+  NewBitmap paints a spec into a bitmap of any size for such uses, the
+  image fitted to that size as it is to the view, so a grab shows the image
+  as the view does.
+
+    ViewportLayout (or whatever holds the viewport)
+    |-- TSprite3DBackground   2D, behind; same area as the viewport
+    `-- TGorillaViewport      Color fully transparent unless the kind is None
+}
+
+interface
+
+uses
+  System.SysUtils, System.Classes, System.UITypes, System.Types,
+  FMX.Types, FMX.Controls, FMX.Graphics, Gorilla.Viewport;
+
+type
+  {$SCOPEDENUMS ON}
+  //** @abstract(What a background shows.)
+  TSprite3DBackgroundKind = (
+    //** @abstract(No background is drawn: the viewport's own opaque colour shows, and grabs
+    //** are transparent. The default.)
+    None,
+    //** @abstract(A checker on screen, standing for transparency; transparency in grabs.)
+    Transparent,
+    //** @abstract(One colour, Colour.)
+    Solid,
+    //** @abstract(A blend from GradientFrom to GradientTo, in the direction
+    //** GradientDirection.)
+    Gradient,
+    //** @abstract(The image file ImageFile, fitted as ImageFit says, over Colour where it
+    //** does not reach.)
+    Image);
+
+  //** @abstract(Which way a Gradient background runs, from GradientFrom to GradientTo.)
+  //**
+  //** The diagonals run corner to corner whatever the view's shape: the colour is constant
+  //** along lines parallel to the other diagonal, as in CSS's @code(to bottom right).
+  TSprite3DGradientDirection = (
+    //** @abstract(From the top edge to the bottom edge. The default.)
+    TopToBottom,
+    //** @abstract(From the left edge to the right edge.)
+    LeftToRight,
+    //** @abstract(From the top-left corner to the bottom-right corner.)
+    TopLeftToBottomRight,
+    //** @abstract(From the top-right corner to the bottom-left corner.)
+    TopRightToBottomLeft);
+
+  //** @abstract(How an Image background's image is fitted to the picture.)
+  //**
+  //** Every one but Stretch keeps the image's shape, and places it as ImageAlign says,
+  //** centred unless changed: what does not reach an edge shows the background's Colour, and
+  //** what goes past one is cut off.
+  TSprite3DImageFit = (
+    //** @abstract(The whole image, as large as fits: Colour above and below, or either side,
+    //** where the shapes differ. The default.)
+    Fit,
+    //** @abstract(The whole picture covered, as small as does it: the image cut off top and
+    //** bottom, or either side, where the shapes differ.)
+    Fill,
+    //** @abstract(The image stretched to the picture's width and height, its shape changed.)
+    Stretch,
+    //** @abstract(The image as wide as the picture, cut off or with Colour above and below.)
+    FitWidth,
+    //** @abstract(The image as high as the picture, cut off or with Colour either side.)
+    FitHeight,
+    //** @abstract(One image pixel to one pixel of the grab, whatever its size; the view shows
+    //** it scaled as it shows the grab.)
+    Original);
+
+  //** @abstract(Where an Image background's image sits in the picture where their shapes
+  //** differ: against which edges, or centred.)
+  //**
+  //** In the order of a 3 by 3 grid, row by row from the top-left, so Ord mod 3 is the
+  //** column and Ord div 3 the row. Where the image is smaller than the picture it sits
+  //** there, Colour filling the rest; where larger, as Fill can make it, that part of it is
+  //** what shows. Stretch fills the picture, so it does not apply.
+  TSprite3DImageAlign = (
+    //** @abstract(Against the top and left edges.)
+    TopLeft,
+    //** @abstract(Against the top edge, centred across.)
+    Top,
+    //** @abstract(Against the top and right edges.)
+    TopRight,
+    //** @abstract(Against the left edge, centred down.)
+    Left,
+    //** @abstract(Centred both ways. The default.)
+    Centre,
+    //** @abstract(Against the right edge, centred down.)
+    Right,
+    //** @abstract(Against the bottom and left edges.)
+    BottomLeft,
+    //** @abstract(Against the bottom edge, centred across.)
+    Bottom,
+    //** @abstract(Against the bottom and right edges.)
+    BottomRight);
+  {$SCOPEDENUMS OFF}
+
+  //** @abstract(Describes a background: its kind, colours and checker size.)
+  //**
+  //** A plain record, copied by value. Default gives the application's starting background:
+  //** None, with a checker of 64-pixel squares in two greys ready for Transparent. Colours
+  //** are used opaque; their alpha is ignored.
+  TSprite3DBackgroundSpec = record
+    //** @abstract(What the background shows.)
+    Kind: TSprite3DBackgroundKind;
+    //** @abstract(The colour of a Solid background.)
+    Colour: TAlphaColor;
+    //** @abstract(The colour at the start of a Gradient background.)
+    GradientFrom: TAlphaColor;
+    //** @abstract(The colour at the end of a Gradient background.)
+    GradientTo: TAlphaColor;
+    //** @abstract(Which way a Gradient background runs.)
+    GradientDirection: TSprite3DGradientDirection;
+    //** @abstract(The side of each checker square, in pixels on screen; at least 1.)
+    CheckerSize: Integer;
+    //** @abstract(The lighter checker colour.)
+    CheckerLight: TAlphaColor;
+    //** @abstract(The darker checker colour.)
+    CheckerDark: TAlphaColor;
+    //** @abstract(The Image background's file: a full path, or empty for none.)
+    //**
+    //** Any image TBitmap reads on the platform: PNG, JPEG, BMP and GIF everywhere. One that
+    //** cannot be read leaves Colour alone showing.
+    ImageFile: String;
+    //** @abstract(How the Image background's image is fitted to the picture.)
+    ImageFit: TSprite3DImageFit;
+    //** @abstract(Where the Image background's image sits where its shape and the picture's
+    //** differ.)
+    ImageAlign: TSprite3DImageAlign;
+    //** @abstract(The starting background: None.)
+    //**
+    //** The checker has 64-pixel squares of light and mid grey, Colour is mid grey and the
+    //** gradient runs from light grey at the top to dark grey at the bottom, ready for when
+    //** another kind is chosen; no image file, fitted with Fit and centred.
+    //**
+    //** @returns(The default spec.)
+    class function Default: TSprite3DBackgroundSpec; static;
+    //** @abstract(The gradient's colour a fraction of the way along it.)
+    //**
+    //** @param(AFraction 0 for the start, GradientFrom, to 1 for the end, GradientTo; values
+    //** outside are clamped.)
+    //**
+    //** @returns(The blended colour, opaque.)
+    function GradientAt(const AFraction: Single): TAlphaColor;
+    //** @abstract(The direction the gradient runs in an area of the given size, and its
+    //** length.)
+    //**
+    //** The direction is a unit vector with X to the right and Y down; the length is the
+    //** area's extent along it, from the starting edge or corner to the opposite one.
+    //**
+    //** @param(AWidth The area's width, in any unit.)
+    //**
+    //** @param(AHeight The area's height, in the same unit.)
+    //**
+    //** @param(ADX The direction's X component.)
+    //**
+    //** @param(ADY The direction's Y component; never negative.)
+    //**
+    //** @param(ALength The gradient's length, in the unit of AWidth and AHeight.)
+    procedure GradientAxis(const AWidth, AHeight: Single; out ADX, ADY, ALength: Single);
+    //** @abstract(Where the Image background's image goes in a picture of the given size, as
+    //** ImageFit and ImageAlign say.)
+    //**
+    //** The rectangle may reach past the picture's edges, for Fill and the like, where the
+    //** image is cut off.
+    //**
+    //** @param(AImageWidth The image's width, in its pixels.)
+    //**
+    //** @param(AImageHeight The image's height, in its pixels.)
+    //**
+    //** @param(AWidth The picture's width, in pixels.)
+    //**
+    //** @param(AHeight The picture's height, in pixels.)
+    //**
+    //** @param(AImageScale For Original: the picture's pixels per image pixel, 1 for a grab.)
+    //**
+    //** @returns(The image's rectangle in the picture, in its pixels from the top-left.)
+    function ImageRect(const AImageWidth, AImageHeight, AWidth, AHeight,
+      AImageScale: Single): TRectF;
+    //** @abstract(The gradient's colour at a point of an area.)
+    //**
+    //** @param(AX The point's distance from the area's left edge.)
+    //**
+    //** @param(AY The point's distance from the area's top edge.)
+    //**
+    //** @param(AWidth The area's width, in the unit of AX.)
+    //**
+    //** @param(AHeight The area's height, in the unit of AY.)
+    //**
+    //** @returns(The blended colour, opaque.)
+    function GradientAtPoint(const AX, AY, AWidth, AHeight: Single): TAlphaColor;
+    //** @abstract(Paints the background into a new bitmap of the given size.)
+    //**
+    //** Every pixel is painted, top row first: Solid in Colour, Gradient as GradientAtPoint
+    //** gives at each pixel's centre, Transparent as the checker, with squares of CheckerSize
+    //** times APixelsPerUnit pixels from a light one at the top-left, Image as Colour with the
+    //** image drawn smoothly over it in ImageRect (Colour alone if the file cannot be read),
+    //** and None fully transparent. Every colour but None's is opaque, and an image's
+    //** transparent parts show Colour. Rows that repeat an earlier row are
+    //** copied rather than painted again, so a checker or a left-to-right gradient is cheap at
+    //** any size; a top-to-bottom or diagonal gradient is painted pixel by pixel. May be
+    //** called from any thread that may use TBitmap, which on most platforms is the main
+    //** thread only.
+    //**
+    //** @param(AWidth The bitmap's width in pixels; at least 1 is used.)
+    //**
+    //** @param(AHeight The bitmap's height in pixels; at least 1 is used.)
+    //**
+    //** @param(APixelsPerUnit Bitmap pixels per logical pixel, such as the display scale, for
+    //** the checker's square size; 1 for a grab. Values below 0.01 count as 0.01.)
+    //**
+    //** @param(AImageScale For an Original image: bitmap pixels per image pixel; 1, the
+    //** default, for a grab.)
+    //**
+    //** @returns(The bitmap, owned by the caller, who must free it.)
+    //**
+    //** @raises(Exception if the bitmap cannot be made or mapped for writing.)
+    function NewBitmap(const AWidth, AHeight: Integer;
+      const APixelsPerUnit: Single; const AImageScale: Single = 1): TBitmap;
+  end;
+
+  //** @abstract(Shows a background behind a viewport, as a 2D control.)
+  //**
+  //** Create it and call AttachTo with the viewport. It becomes the viewport's sibling,
+  //** directly behind it, with the same alignment and margins, so it covers the same area;
+  //** if the viewport is not aligned, it copies the viewport's bounds once, and does not
+  //** follow later moves. It makes the viewport's Color fully transparent while it has
+  //** something to show. It takes no mouse or touch input and is never stored. Set Spec to
+  //** change what it shows. For the main thread only.
+  TSprite3DBackground = class(TControl)
+  private
+    FViewport: TGorillaViewport;
+    FOpaqueColour: TAlphaColor;   // the viewport's Color, put back for None
+    FSpec: TSprite3DBackgroundSpec;
+    FBitmap: TBitmap;             // the checker or gradient as last painted
+    FBitmapValid: Boolean;
+    FBitmapWidth: Integer;        // the pixel size FBitmap was made for
+    FBitmapHeight: Integer;
+    //** @abstract(Backing field for GrabWidth.)
+    FGrabWidth: Integer;
+    procedure UpdateViewport;
+    procedure InvalidateBitmap;
+    procedure SetSpec(const Value: TSprite3DBackgroundSpec);
+    //** @abstract(Setter for GrabWidth: repaints an Original image at its new scale.)
+    //**
+    //** @param(Value The grab's width, in pixels; 0 or less for the view's own.)
+    procedure SetGrabWidth(const Value: Integer);
+  protected
+    //** @abstract(Paints the background over the control's whole area.)
+    procedure Paint; override;
+    //** @abstract(Forgets the viewport when it is freed.)
+    //**
+    //** @param(AComponent The component being inserted or removed.)
+    //**
+    //** @param(Operation Whether it is being inserted or removed.)
+    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+  public
+    //** @abstract(The most pixels a gradient's bitmap has along its longer side.)
+    //**
+    //** A larger view stretches the bitmap smoothly to fit; a smooth blend loses nothing by
+    //** it, and the bitmap is quick to remake while the window is resized.
+    const MaxGradientPixels = 512;
+  public
+    //** @abstract(Creates the background with the default spec, not yet attached.)
+    //**
+    //** @param(AOwner The owner, which frees it; nil is usual, as its parent frees it once
+    //** attached.)
+    constructor Create(AOwner: TComponent); override;
+    //** @abstract(Frees the background and its bitmap.)
+    //**
+    //** The viewport, if it still exists, keeps whatever Color it has at the time.
+    destructor Destroy; override;
+    //** @abstract(Puts the background behind AViewport.)
+    //**
+    //** Makes it a child of the viewport's parent, or of its owner if it has no parent yet,
+    //** placed just before the viewport so it is painted first. It takes the viewport's Align
+    //** and Margins, or its bounds if it is not aligned, so set the viewport's alignment
+    //** first. The viewport's Color at this moment is kept as the colour shown for None; if
+    //** it is already fully transparent, black is kept instead. Then the viewport's Color is
+    //** set for the present spec. Call it once.
+    //**
+    //** @param(AViewport The viewport to sit behind.)
+    //**
+    //** @raises(EArgumentNilException if AViewport is nil.)
+    procedure AttachTo(const AViewport: TGorillaViewport);
+    //** @abstract(What the background shows; setting it repaints it.)
+    //**
+    //** Setting it also sets the viewport's Color: fully transparent for every kind but None,
+    //** which hides this control and puts back the viewport's opaque Color.
+    property Spec: TSprite3DBackgroundSpec read FSpec write SetSpec;
+    //** @abstract(The width, in pixels, of the grab the view stands for; 0, the default, for
+    //** the view's own pixels.)
+    //**
+    //** Only an Original image needs it: it is drawn one image pixel to one grab pixel, so the
+    //** view shows it at the view's width over this.
+    property GrabWidth: Integer read FGrabWidth write SetGrabWidth;
+  end;
+
+//** @abstract(Reads an image file for an Image background, and keeps it.)
+//**
+//** The image is kept until it is asked for with another file, or the file's time of last
+//** change differs, so the view can be repainted and grabs made without reading the file
+//** each time. The path goes through OSFriendlyPath first. Main thread only, as TBitmap is.
+//**
+//** @param(AFile The image file.)
+//**
+//** @param(AError Set to why there is no image: no file chosen, the file not found, or it
+//** could not be read; empty when there is one.)
+//**
+//** @returns(The image, owned by this unit and valid until the next call; nil if there is
+//** none.)
+function BackgroundImage(const AFile: String; out AError: String): TBitmap;
+
+implementation
+
+uses
+  System.Math, OSPaths;
+
+var
+  //** @abstract(BackgroundImage's kept image, the path it was read from, that file's time of
+  //** last change when read, and why it could not be read, if it could not.)
+  KeptImage: TBitmap;
+  KeptImageFile: String;
+  KeptImageAge: TDateTime;
+  KeptImageError: String;
+
+function BackgroundImage(const AFile: String; out AError: String): TBitmap;
+var
+  Path: String;
+  Age: TDateTime;
+begin
+  Result := nil;
+  AError := String.Empty;
+  if AFile.Trim = String.Empty then
+  begin
+    AError := 'No image file is chosen.';
+    Exit;
+  end;
+  Path := OSFriendlyPath(AFile);
+  if not FileAge(Path, Age) then
+  begin
+    AError := 'The image file was not found: ' + Path;
+    Exit;
+  end;
+  // The same file, unchanged: what was read before, or why it could not be
+  if (Path = KeptImageFile) and (Age = KeptImageAge) then
+  begin
+    AError := KeptImageError;
+    Exit(KeptImage);
+  end;
+  FreeAndNil(KeptImage);
+  KeptImageFile := Path;
+  KeptImageAge := Age;
+  KeptImageError := String.Empty;
+  try
+    KeptImage := TBitmap.CreateFromFile(Path);
+    if KeptImage.IsEmpty then
+      raise Exception.Create('it has no pixels');
+  except
+    on E: Exception do
+    begin
+      FreeAndNil(KeptImage);
+      KeptImageError := 'The image could not be read from ' + Path + ': ' + E.Message;
+    end;
+  end;
+  AError := KeptImageError;
+  Result := KeptImage;
+end;
+
+{ TSprite3DBackgroundSpec }
+
+class function TSprite3DBackgroundSpec.Default: TSprite3DBackgroundSpec;
+begin
+  Result.Kind := TSprite3DBackgroundKind.None;
+  Result.Colour := $FF808080;
+  Result.GradientFrom := $FFD0D0D0;
+  Result.GradientTo := $FF404040;
+  Result.GradientDirection := TSprite3DGradientDirection.TopToBottom;
+  Result.CheckerSize := 64;
+  Result.CheckerLight := $FFCCCCCC;
+  Result.CheckerDark := $FF999999;
+  Result.ImageFile := String.Empty;
+  Result.ImageFit := TSprite3DImageFit.Fit;
+  Result.ImageAlign := TSprite3DImageAlign.Centre;
+end;
+
+function TSprite3DBackgroundSpec.GradientAt(const AFraction: Single): TAlphaColor;
+var
+  T: Single;
+  F, G: TAlphaColorRec;
+  R: TAlphaColorRec;
+begin
+  T := EnsureRange(AFraction, 0.0, 1.0);
+  F := TAlphaColorRec(GradientFrom);
+  G := TAlphaColorRec(GradientTo);
+  R.R := Round(F.R + (G.R - F.R) * T);
+  R.G := Round(F.G + (G.G - F.G) * T);
+  R.B := Round(F.B + (G.B - F.B) * T);
+  R.A := 255;
+  Result := R.Color;
+end;
+
+// A diagonal runs along the normal to the other diagonal, (H, W) or (-H, W)
+// scaled to unit length, so its two corners are exactly at either end
+procedure TSprite3DBackgroundSpec.GradientAxis(const AWidth, AHeight: Single;
+  out ADX, ADY, ALength: Single);
+var
+  W, H, N: Single;
+begin
+  W := Max(AWidth, 0);
+  H := Max(AHeight, 0);
+  N := Sqrt(W * W + H * H);
+  case GradientDirection of
+    TSprite3DGradientDirection.LeftToRight:
+      begin
+        ADX := 1;
+        ADY := 0;
+      end;
+    TSprite3DGradientDirection.TopLeftToBottomRight,
+    TSprite3DGradientDirection.TopRightToBottomLeft:
+      if N > 0 then
+      begin
+        ADX := H / N;
+        ADY := W / N;
+        if GradientDirection = TSprite3DGradientDirection.TopRightToBottomLeft then
+          ADX := -ADX;
+      end
+      else
+      begin
+        ADX := 0;
+        ADY := 1;
+      end;
+  else
+    begin
+      ADX := 0;
+      ADY := 1;
+    end;
+  end;
+  ALength := W * Abs(ADX) + H * Abs(ADY);
+end;
+
+function TSprite3DBackgroundSpec.ImageRect(const AImageWidth, AImageHeight, AWidth,
+  AHeight, AImageScale: Single): TRectF;
+var
+  Scale, W, H, AcrossFraction, DownFraction: Single;
+begin
+  if (ImageFit = TSprite3DImageFit.Stretch) or (AImageWidth <= 0) or (AImageHeight <= 0) then
+    Exit(TRectF.Create(0, 0, AWidth, AHeight));
+  case ImageFit of
+    TSprite3DImageFit.Fill:
+      Scale := Max(AWidth / AImageWidth, AHeight / AImageHeight);
+    TSprite3DImageFit.FitWidth:
+      Scale := AWidth / AImageWidth;
+    TSprite3DImageFit.FitHeight:
+      Scale := AHeight / AImageHeight;
+    TSprite3DImageFit.Original:
+      Scale := Max(AImageScale, 0.0001);
+  else
+    Scale := Min(AWidth / AImageWidth, AHeight / AImageHeight);
+  end;
+  // What is left over, or cut off, goes to the sides ImageAlign does not
+  // name: none of it to the left for the left column, all of it for the
+  // right, half for the middle; likewise down
+  W := AImageWidth * Scale;
+  H := AImageHeight * Scale;
+  AcrossFraction := (Ord(ImageAlign) mod 3) / 2;
+  DownFraction := (Ord(ImageAlign) div 3) / 2;
+  Result := TRectF.Create(0, 0, W, H);
+  Result.Offset((AWidth - W) * AcrossFraction, (AHeight - H) * DownFraction);
+end;
+
+function TSprite3DBackgroundSpec.GradientAtPoint(const AX, AY, AWidth,
+  AHeight: Single): TAlphaColor;
+var
+  DX, DY, Len: Single;
+begin
+  GradientAxis(AWidth, AHeight, DX, DY, Len);
+  if Len <= 0 then
+    Exit(GradientAt(0));
+  Result := GradientAt(((AX - AWidth / 2) * DX + (AY - AHeight / 2) * DY) / Len + 0.5);
+end;
+
+// Each row has a key: rows with the same key are the same pixels, so only
+// the first of them is painted and the rest are copied from it. -1 means a
+// row like no other.
+function TSprite3DBackgroundSpec.NewBitmap(const AWidth, AHeight: Integer;
+  const APixelsPerUnit: Single; const AImageScale: Single): TBitmap;
+var
+  W, H, X, Y, Key, RowBytes: Integer;
+  Data: TBitmapData;
+  Side, DX, DY, Len: Single;
+  FirstRow: array[0..1] of Integer;   // the first row painted for each key
+  Picture: TBitmap;
+  Problem: String;
+
+  function RowKey(const ARow: Integer): Integer;
+  begin
+    case Kind of
+      TSprite3DBackgroundKind.Transparent:
+        Result := Floor(ARow / Side) and 1;
+      TSprite3DBackgroundKind.Gradient:
+        if GradientDirection = TSprite3DGradientDirection.LeftToRight then
+          Result := 0
+        else
+          Result := -1;
+    else
+      Result := 0;   // None and Solid: every row the same
+    end;
+  end;
+
+  function PixelAt(const AX, AY: Integer): TAlphaColor;
+  begin
+    case Kind of
+      TSprite3DBackgroundKind.Solid:
+        Result := Colour or TAlphaColors.Black;
+      TSprite3DBackgroundKind.Gradient:
+        if Len <= 0 then
+          Result := GradientAt(0)
+        else
+          Result := GradientAt(((AX + 0.5 - W / 2) * DX + (AY + 0.5 - H / 2) * DY) / Len +
+            0.5);
+      TSprite3DBackgroundKind.Transparent:
+        if Odd(Floor(AX / Side) + Floor(AY / Side)) then
+          Result := CheckerDark or TAlphaColors.Black
+        else
+          Result := CheckerLight or TAlphaColors.Black;
+    else
+      Result := TAlphaColors.Null;
+    end;
+  end;
+
+begin
+  W := Max(AWidth, 1);
+  H := Max(AHeight, 1);
+  if Kind = TSprite3DBackgroundKind.Image then
+  begin
+    // Drawn rather than set pixel by pixel: Colour, then the image over it,
+    // smoothly, where ImageRect puts it
+    Result := TBitmap.Create(W, H);
+    try
+      if not Result.Canvas.BeginScene then
+        raise Exception.Create('The background bitmap could not be drawn on.');
+      try
+        Result.Canvas.Clear(Colour or TAlphaColors.Black);
+        Picture := BackgroundImage(ImageFile, Problem);
+        if Picture <> nil then
+          Result.Canvas.DrawBitmap(Picture, TRectF.Create(0, 0, Picture.Width,
+            Picture.Height), ImageRect(Picture.Width, Picture.Height, W, H, AImageScale), 1,
+            False);
+      finally
+        Result.Canvas.EndScene;
+      end;
+    except
+      Result.Free;
+      raise;
+    end;
+    Exit;
+  end;
+  Side := Max(CheckerSize, 1) * Max(APixelsPerUnit, 0.01);
+  GradientAxis(W, H, DX, DY, Len);
+  FirstRow[0] := -1;
+  FirstRow[1] := -1;
+  Result := TBitmap.Create(W, H);
+  try
+    if not Result.Map(TMapAccess.Write, Data) then
+      raise Exception.Create('The background bitmap could not be written.');
+    try
+      RowBytes := W * Data.BytesPerPixel;
+      for Y := 0 to H - 1 do
+      begin
+        Key := RowKey(Y);
+        if (Key >= 0) and (FirstRow[Key] >= 0) then
+          Move(Data.GetScanline(FirstRow[Key])^, Data.GetScanline(Y)^, RowBytes)
+        else
+        begin
+          for X := 0 to W - 1 do
+            Data.SetPixel(X, Y, PixelAt(X, Y));
+          if Key >= 0 then
+            FirstRow[Key] := Y;
+        end;
+      end;
+    finally
+      Result.Unmap(Data);
+    end;
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+{ TSprite3DBackground }
+
+constructor TSprite3DBackground.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  Stored := False;
+  Locked := True;
+  HitTest := False;
+  CanFocus := False;
+  FOpaqueColour := TAlphaColors.Black;
+  FSpec := TSprite3DBackgroundSpec.Default;
+  Visible := False;   // None, until a spec says otherwise
+end;
+
+destructor TSprite3DBackground.Destroy;
+begin
+  if FViewport <> nil then
+    FViewport.RemoveFreeNotification(Self);
+  FBitmap.Free;
+  inherited;
+end;
+
+procedure TSprite3DBackground.AttachTo(const AViewport: TGorillaViewport);
+begin
+  if AViewport = nil then
+    raise EArgumentNilException.Create('TSprite3DBackground.AttachTo needs a viewport.');
+  FViewport := AViewport;
+  FViewport.FreeNotification(Self);
+  if TAlphaColorRec(FViewport.Color).A = 0 then
+    FOpaqueColour := TAlphaColors.Black
+  else
+    FOpaqueColour := FViewport.Color;
+  if FViewport.Parent <> nil then
+    Parent := FViewport.Parent
+  else if FViewport.Owner is TFmxObject then
+    Parent := TFmxObject(FViewport.Owner);
+  // Painted first, so the viewport draws over it
+  if (Parent <> nil) and (FViewport.Parent = Parent) then
+    Index := FViewport.Index;
+  Margins.Assign(FViewport.Margins);
+  if FViewport.Align = TAlignLayout.None then
+    BoundsRect := FViewport.BoundsRect
+  else
+    // Two controls with the same Client alignment share the same area
+    Align := FViewport.Align;
+  UpdateViewport;
+end;
+
+procedure TSprite3DBackground.Notification(AComponent: TComponent;
+  Operation: TOperation);
+begin
+  inherited;
+  if (Operation = opRemove) and (AComponent = FViewport) then
+    FViewport := nil;
+end;
+
+// Shows this control and makes the viewport see-through, or for None hides
+// it and gives the viewport its opaque colour back. Only what differs is set.
+procedure TSprite3DBackground.UpdateViewport;
+var
+  Show: Boolean;
+  Colour: TAlphaColor;
+begin
+  Show := FSpec.Kind <> TSprite3DBackgroundKind.None;
+  if Visible <> Show then
+    Visible := Show;
+  if FViewport = nil then
+    Exit;
+  if Show then
+    Colour := TAlphaColors.Null
+  else
+    Colour := FOpaqueColour;
+  if FViewport.Color <> Colour then
+    FViewport.Color := Colour;
+end;
+
+procedure TSprite3DBackground.InvalidateBitmap;
+begin
+  FBitmapValid := False;
+  Repaint;
+end;
+
+procedure TSprite3DBackground.SetGrabWidth(const Value: Integer);
+begin
+  if Value = FGrabWidth then
+    Exit;
+  FGrabWidth := Value;
+  if (FSpec.Kind = TSprite3DBackgroundKind.Image) and
+    (FSpec.ImageFit = TSprite3DImageFit.Original) then
+    InvalidateBitmap;
+end;
+
+procedure TSprite3DBackground.SetSpec(const Value: TSprite3DBackgroundSpec);
+begin
+  FSpec := Value;
+  FSpec.CheckerSize := Max(FSpec.CheckerSize, 1);
+  UpdateViewport;
+  InvalidateBitmap;
+end;
+
+// The bitmap is remade only when the spec, the size, the display scale or,
+// for an Original image, the grab's width has changed. The checker and the
+// image are one bitmap pixel per screen pixel, drawn without smoothing (the
+// image was smoothed as it was fitted); the gradient is at most
+// MaxGradientPixels along its longer side, stretched smoothly.
+procedure TSprite3DBackground.Paint;
+var
+  Scale, Shrink, ImageScale: Single;
+  PixelW, PixelH, BitmapW, BitmapH: Integer;
+  Gradient: Boolean;
+begin
+  if (Width <= 0) or (Height <= 0) then
+    Exit;
+  case FSpec.Kind of
+    TSprite3DBackgroundKind.None:
+      Exit;
+    TSprite3DBackgroundKind.Solid:
+      begin
+        Canvas.Fill.Kind := TBrushKind.Solid;
+        Canvas.Fill.Color := FSpec.Colour or TAlphaColors.Black;
+        Canvas.FillRect(LocalRect, 0, 0, AllCorners, AbsoluteOpacity);
+        Exit;
+      end;
+  end;
+  Scale := Canvas.Scale;
+  if Scale <= 0 then
+    Scale := 1;
+  PixelW := Max(Round(Width * Scale), 1);
+  PixelH := Max(Round(Height * Scale), 1);
+  Gradient := FSpec.Kind = TSprite3DBackgroundKind.Gradient;
+  if Gradient then
+  begin
+    Shrink := Min(1.0, MaxGradientPixels / Max(PixelW, PixelH));
+    BitmapW := Max(Round(PixelW * Shrink), 1);
+    BitmapH := Max(Round(PixelH * Shrink), 1);
+  end
+  else
+  begin
+    BitmapW := PixelW;
+    BitmapH := PixelH;
+  end;
+  if not FBitmapValid or (FBitmap = nil) or (FBitmapWidth <> BitmapW) or
+    (FBitmapHeight <> BitmapH) then
+  begin
+    FreeAndNil(FBitmap);
+    // An Original image is one image pixel to one grab pixel: at the view's
+    // pixels over the grab's
+    ImageScale := 1;
+    if FGrabWidth > 0 then
+      ImageScale := BitmapW / FGrabWidth;
+    FBitmap := FSpec.NewBitmap(BitmapW, BitmapH, Scale, ImageScale);
+    FBitmapWidth := BitmapW;
+    FBitmapHeight := BitmapH;
+    FBitmapValid := True;
+  end;
+  Canvas.DrawBitmap(FBitmap, TRectF.Create(0, 0, FBitmap.Width, FBitmap.Height), LocalRect,
+    AbsoluteOpacity, not Gradient);
+end;
+
+initialization
+
+finalization
+  FreeAndNil(KeptImage);
+
+end.

@@ -1,17 +1,17 @@
 //** @abstract(Sprite3DBuilder: a level builder for 3D model kits, grown from Sprite3D.)
 //**
-//** The program loads glTF, FBX, OBJ, USD, Collada, STL or PLY models into a Gorilla3D
-//** viewport, each in its rest pose, on an ever-present floor grid, and frames them with the
-//** Spritely package's orbital camera, @code(TSpritelyOrbitalCamera). TMainForm, in
-//** Sprite3DBuilderMain, holds the view and every command. On Windows FastMM5 is the memory
+//** The program starts with an empty level: a floor grid in a Gorilla3D viewport, framed by
+//** the Spritely package's orbital camera, @code(TSpritelyOrbitalCamera). File, Open Asset
+//** Folder chooses a folder of a model kit to build from, whose models TAssetsForm shows as
+//** thumbnails, cached by a hash of each model. TMainForm, in Sprite3DBuilderMain, holds the
+//** view and every command. On Windows FastMM5 is the memory
 //** manager, and with REPORT_LEAKS defined it writes every leak still allocated at shut-down,
 //** in full, to Sprite3DBuilder_MemoryManager_EventLog.txt beside the executable. Builds for
-//** Windows, macOS, Linux, Android and iOS. On Windows a copy started while another is
-//** running hands its files to that one and ends; see HandOffToRunningInstance.
+//** Windows, macOS, Linux, Android and iOS.
 //**
 //** @preformatted(
 //** ui/      the forms and the settings kept between sessions
-//** lib/     the grid, axes, swept volumes, settings storage and platform helpers
+//** lib/     the grid, volumes, off-screen grabs, asset cache, settings and platform helpers
 //** common/  display information, GPU preference and system folder helpers
 //** )
 program Sprite3DBuilder;
@@ -19,19 +19,18 @@ program Sprite3DBuilder;
 {
   Sprite3DBuilder: a level builder for 3D model kits, grown from Sprite3D.
 
-  The program loads glTF, FBX, OBJ, USD, Collada, STL or PLY models into a
-  Gorilla3D viewport, each in its rest pose, on an ever-present floor grid,
-  and frames them with the Spritely package's orbital camera,
-  TSpritelyOrbitalCamera. TMainForm, in Sprite3DBuilderMain, holds the view
-  and every command. On Windows FastMM5 is the memory manager, and with
+  The program starts with an empty level: a floor grid in a Gorilla3D
+  viewport, framed by the Spritely package's orbital camera,
+  TSpritelyOrbitalCamera. File, Open Asset Folder chooses a folder of a
+  model kit to build from, whose models TAssetsForm shows as thumbnails,
+  cached by a hash of each model. TMainForm, in Sprite3DBuilderMain, holds
+  the view and every command. On Windows FastMM5 is the memory manager, and with
   REPORT_LEAKS defined it writes every leak still allocated at shut-down, in
   full, to Sprite3DBuilder_MemoryManager_EventLog.txt beside the executable.
-  Builds for Windows, macOS, Linux, Android and iOS. On Windows a copy
-  started while another is running hands its files to that one and ends;
-  see HandOffToRunningInstance.
+  Builds for Windows, macOS, Linux, Android and iOS.
 
     ui/      the forms and the settings kept between sessions
-    lib/     the grid, axes, swept volumes, settings storage and platform helpers
+    lib/     the grid, volumes, off-screen grabs, asset cache, settings and platform helpers
     common/  display information, GPU preference and system folder helpers
 }
 
@@ -45,12 +44,10 @@ uses
   FMX.Forms,
   Sprite3DBuilderMain in 'ui\Sprite3DBuilderMain.pas' {MainForm},
   Sprite3DBuilderHelpers in 'ui\Sprite3DBuilderHelpers.pas',
-  Sprite3DAxes in 'lib\Sprite3DAxes.pas',
   Sprite3DGrid in 'lib\Sprite3DGrid.pas',
   Sprite3DAnimFrames in 'lib\Sprite3DAnimFrames.pas',
   Sprite3DSweep in 'lib\Sprite3DSweep.pas',
   Sprite3DStorage in 'lib\Sprite3DStorage.pas',
-  Sprite3DOpenFiles in 'lib\Sprite3DOpenFiles.pas',
   Sprite3DBuilderOrbitalForm in 'ui\Sprite3DBuilderOrbitalForm.pas' {OrbitalSettingsForm},
   OSPaths in 'common\OSPaths.pas',
   JsonText in 'common\JsonText.pas',
@@ -59,10 +56,13 @@ uses
   Sprite3DStyles in 'lib\Sprite3DStyles.pas',
   Sprite3DTitleBar in 'lib\Sprite3DTitleBar.pas',
   Sprite3DBuilderSettingsForm in 'ui\Sprite3DBuilderSettingsForm.pas' {GeneralSettingsForm},
-  Sprite3DBuilderAnimationsUsedForm in 'ui\Sprite3DBuilderAnimationsUsedForm.pas' {AnimationsUsedForm},
-  Sprite3DBuilderLoadForm in 'ui\Sprite3DBuilderLoadForm.pas' {ModelLoadForm},
-  Sprite3DBuilderNameClashForm in 'ui\Sprite3DBuilderNameClashForm.pas' {NameClashForm},
   Sprite3DLicences in 'lib\Sprite3DLicences.pas',
+  Sprite3DFolderDialog in 'lib\Sprite3DFolderDialog.pas',
+  Sprite3DBackground in 'lib\Sprite3DBackground.pas',
+  Sprite3DResample in 'lib\Sprite3DResample.pas',
+  Sprite3DOffscreen in 'lib\Sprite3DOffscreen.pas',
+  Sprite3DAssetCache in 'lib\Sprite3DAssetCache.pas',
+  Sprite3DBuilderAssetsForm in 'ui\Sprite3DBuilderAssetsForm.pas' {AssetsForm},
   Sprite3DBuilderLicencesForm in 'ui\Sprite3DBuilderLicencesForm.pas' {LicencesForm};
 
 {$R *.res}
@@ -75,12 +75,6 @@ uses
 {$R '..\licences\Sprite3DLicences.res'}
 
 begin
-  // A model opened while Sprite3DBuilder is already running goes to the
-  // copy running, which loads it, rather than opening a second window; this
-  // copy then ends at once. See HandOffToRunningInstance.
-  if HandOffToRunningInstance('Sprite3DBuilder') then
-    Exit;
-
   {$IF DEFINED(MSWINDOWS)}
   // FastMM5 also writes every leak, in full, to
   // Sprite3DBuilder_MemoryManager_EventLog.txt in the executable's folder,

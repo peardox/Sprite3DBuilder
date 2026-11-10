@@ -10,8 +10,6 @@ object MainForm: TMainForm
   OnCreate = FormCreate
   OnCloseQuery = FormCloseQuery
   OnDestroy = FormDestroy
-  OnKeyDown = ModelListBoxKeyDown
-  OnKeyUp = ModelListBoxKeyUp
   OnShow = FormShow
   DesignerMasterStyle = 0
   object TabControl1: TTabControl
@@ -63,53 +61,6 @@ object MainForm: TMainForm
             OnResize = AspectLayoutResize
           end
         end
-        object ControlsLayout: TLayout
-          Align = Right
-          Position.X = 560.000000000000000000
-          Size.Width = 240.000000000000000000
-          Size.Height = 694.000000000000000000
-          Size.PlatformDefault = False
-          TabOrder = 0
-          object AnimationsHeader: TRectangle
-            Align = Top
-            Fill.Color = xFF2B2B2B
-            Padding.Left = 8.000000000000000000
-            Padding.Right = 8.000000000000000000
-            Size.Width = 240.000000000000000000
-            Size.Height = 26.000000000000000000
-            Size.PlatformDefault = False
-            Stroke.Kind = None
-            object AnimationsLabel: TLabel
-              Align = Client
-              StyledSettings = [Family]
-              Size.Width = 174.000000000000000000
-              Size.Height = 26.000000000000000000
-              Size.PlatformDefault = False
-              TextSettings.Font.Size = 14.000000000000000000
-              TextSettings.Font.StyleExt = {00070000000000000004000000}
-              TextSettings.FontColor = claYellow
-              Text = 'Models'
-              TabOrder = 0
-            end
-          end
-          object ModelListBox: TListBox
-            Align = Client
-            Size.Width = 240.000000000000000000
-            Size.Height = 668.000000000000000000
-            Size.PlatformDefault = False
-            TabOrder = 1
-            OnClick = ModelListBoxClick
-            DisableFocusEffect = True
-            DefaultItemStyles.ItemStyle = ''
-            DefaultItemStyles.GroupHeaderStyle = ''
-            DefaultItemStyles.GroupFooterStyle = ''
-            OnChange = ModelListBoxChange
-            OnKeyDown = ModelListBoxKeyDown
-            OnKeyUp = ModelListBoxKeyUp
-            Viewport.Width = 236.000000000000000000
-            Viewport.Height = 664.000000000000000000
-          end
-        end
       end
       object Model3D1: TModel3D
         Width = 1.000000000000000000
@@ -144,17 +95,6 @@ object MainForm: TMainForm
       end
     end
   end
-  object OpenDialog1: TOpenDialog
-    Filter = 
-      'All supported models (*.glb;*.gltf;*.fbx;*.obj;*.usdc;*.usda;*.u' +
-      'sd;*.usdz;*.dae;*.stl;*.ply)|*.glb;*.gltf;*.fbx;*.obj;*.usdc;*.u' +
-      'sda;*.usd;*.usdz;*.dae;*.stl;*.ply|glTF binary (*.glb)|*.glb|glT' +
-      'F (*.gltf)|*.gltf|FBX (*.fbx)|*.fbx|Wavefront OBJ (*.obj)|*.obj|' +
-      'USD (*.usdc;*.usda;*.usd;*.usdz)|*.usdc;*.usda;*.usd;*.usdz|Coll' +
-      'ada (*.dae)|*.dae|STL (*.stl)|*.stl|PLY (*.ply)|*.ply'
-    Left = 448
-    Top = 8
-  end
   object OrbitCamera: TSpritelyOrbitalCamera
     Left = 448
     Top = 120
@@ -164,10 +104,10 @@ object MainForm: TMainForm
     Top = 8
     object FileMenu: TMenuItem
       Text = 'File'
-      object OpenModelMenuItem: TMenuItem
+      object OpenAssetFolderItem: TMenuItem
         Locked = True
-        Text = 'Open Model'
-        OnClick = OpenModelMenuItemClick
+        Text = 'Open Asset Folder...'
+        OnClick = OpenAssetFolderItemClick
       end
       object SettingsMenuItem: TMenuItem
         Locked = True
@@ -187,14 +127,6 @@ object MainForm: TMainForm
         Locked = True
         Text = 'Exit'
         OnClick = ExitMenuItemClick
-      end
-    end
-    object ModelMenu: TMenuItem
-      Text = 'Models'
-      object ModelsUsedItem: TMenuItem
-        Locked = True
-        Text = 'Models Used...'
-        OnClick = ModelsUsedItemClick
       end
     end
     object ViewMenu: TMenuItem
@@ -355,21 +287,6 @@ object MainForm: TMainForm
         Locked = True
         Text = 'Show bounding box'
         OnClick = ShowBoundsItemClick
-      end
-      object ShowAxesItem: TMenuItem
-        Locked = True
-        Text = 'Show axes'
-        OnClick = ShowAxesItemClick
-      end
-      object ShowSweepItem: TMenuItem
-        Locked = True
-        Text = 'Show Model Volume'
-        OnClick = ShowSweepItemClick
-      end
-      object ShowCombinedSweepItem: TMenuItem
-        Locked = True
-        Text = 'Show Combined Volume'
-        OnClick = ShowCombinedSweepItemClick
       end
     end
   end

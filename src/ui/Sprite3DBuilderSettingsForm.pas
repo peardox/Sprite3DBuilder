@@ -1,5 +1,5 @@
-//** @abstract(The Settings dialog: what to load at start-up, the theme, the view's frame rate,
-//** how JSON files are written and, on Windows, which GPU to use.)
+//** @abstract(The Settings dialog: the theme, the view's frame rate, how JSON files are
+//** written and, on Windows, which GPU to use.)
 //**
 //** A modal form, centred on the main form, laid out in its .fmx file with standard FMX
 //** controls in groups, in two columns so it stays short enough for smaller displays; on
@@ -12,7 +12,6 @@
 //**     |-- ScrollBox
 //**     |   `-- ColumnsLayout          as tall as the taller column
 //**     |       |-- LeftColumn
-//**     |       |   |-- StartupGroup   None, Load default model, Load last model
 //**     |       |   `-- ThemeGroup     Default @(no theme@), Dark, Aqua, Ruby, Golden Graphite
 //**     |       `-- RightColumn
 //**     |           |-- FrameRateGroup FrameRateTrack, FrameRateValueLabel, FrameRateNote
@@ -33,8 +32,8 @@
 unit Sprite3DBuilderSettingsForm;
 
 {
-  The Settings dialog: what to load at start-up, the theme, the view's frame
-  rate, how JSON files are written and, on Windows, which GPU to use.
+  The Settings dialog: the theme, the view's frame rate, how JSON files are
+  written and, on Windows, which GPU to use.
 
   A modal form, centred on the main form, laid out in its .fmx file with
   standard FMX controls in groups, in two columns so it stays short enough
@@ -46,7 +45,6 @@ unit Sprite3DBuilderSettingsForm;
         |-- ScrollBox
         |   `-- ColumnsLayout          as tall as the taller column
         |       |-- LeftColumn
-        |       |   |-- StartupGroup   None, Load default model, Load last model
         |       |   `-- ThemeGroup     Default (no theme), Dark, Aqua, Ruby, Golden Graphite
         |       `-- RightColumn
         |           |-- FrameRateGroup FrameRateTrack, FrameRateValueLabel, FrameRateNote
@@ -86,20 +84,12 @@ type
     ScrollBox: TVertScrollBox;
     //** @abstract(Holds LeftColumn and RightColumn, as tall as the taller of them.)
     ColumnsLayout: TLayout;
-    //** @abstract(The left column: StartupGroup and ThemeGroup.)
+    //** @abstract(The left column: ThemeGroup.)
     //**
     //** On Android and iOS it holds every group, in one column, and RightColumn is hidden.
     LeftColumn: TLayout;
     //** @abstract(The right column: FrameRateGroup, FilesGroup and GpuGroup.)
     RightColumn: TLayout;
-    //** @abstract(The start-up choices.)
-    StartupGroup: TGroupBox;
-    //** @abstract(Start with no model.)
-    StartupNoneRadio: TRadioButton;
-    //** @abstract(Start with the sample model.)
-    StartupDefaultRadio: TRadioButton;
-    //** @abstract(Start with the model last opened.)
-    StartupLastRadio: TRadioButton;
     //** @abstract(The theme choices.)
     ThemeGroup: TGroupBox;
     //** @abstract(FMX's own platform style.)
@@ -292,13 +282,6 @@ procedure TGeneralSettingsForm.SetValues(const Value: TSprite3DGeneralSettings);
 begin
   FValues := Value;
 
-  case Value.StartupAction of
-    saNone: StartupNoneRadio.IsChecked := True;
-    saLastModel: StartupLastRadio.IsChecked := True;
-  else
-    StartupDefaultRadio.IsChecked := True;
-  end;
-
   case Value.Theme of
     thDark: ThemeDarkRadio.IsChecked := True;
     thAquaGraphite: ThemeAquaRadio.IsChecked := True;
@@ -329,13 +312,6 @@ end;
 
 procedure TGeneralSettingsForm.ReadControls;
 begin
-  if StartupNoneRadio.IsChecked then
-    FValues.StartupAction := saNone
-  else if StartupLastRadio.IsChecked then
-    FValues.StartupAction := saLastModel
-  else
-    FValues.StartupAction := saDefaultModel;
-
   if ThemeDarkRadio.IsChecked then
     FValues.Theme := thDark
   else if ThemeAquaRadio.IsChecked then

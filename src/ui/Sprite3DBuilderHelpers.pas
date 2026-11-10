@@ -4,19 +4,16 @@
 //** The application keeps three kinds of code apart. The units in @code(ui) only handle the
 //** user interface; the units in @code(lib) are a library with no knowledge of this
 //** application, usable in other projects; and this unit holds what is left: the
-//** application's own rules, such as where models are found, what settings are kept and how
-//** a loaded model is placed. It uses the library and the RTL, never the UI.
+//** application's own rules, such as where the asset kits are found and what settings are
+//** kept. It uses the library and the RTL, never the UI.
 //**
 //** TSprite3DAppSettings holds the settings kept between sessions, in @code(settings.json)
-//** in the application's own per-user folder, SupportFolder. The measured bounds of each
-//** model's animations are kept there too, one file per model in its @code(bounds) folder,
-//** through LoadAnimationBoundsCache and SaveAnimationBoundsCache.
+//** in the application's own per-user folder, SupportFolder.
 //**
-//** Loading a model through LoadModelFile also registers Gorilla3D's loaders for glTF, FBX,
-//** OBJ, USD, Collada, STL and PLY files, as this unit uses them. Each model the application
-//** keeps loaded, in its Models list, is held in a TSprite3DModelSlot, made with
-//** NewModelSlot, found with ModelSlotIndex and freed with FreeModelSlot; ShowModelWithHelpers
-//** shows or hides one with everything drawn beside it.
+//** AssetsFolder finds the @code(assets) folder the kits are kept in, and AssetModelFiles
+//** lists the models in one of its folders. Loading a model through LoadModelFile also
+//** registers Gorilla3D's loaders for glTF, FBX, OBJ, USD, Collada, STL and PLY files, as
+//** this unit uses them.
 //**
 //** All routines are for the main thread, except the members of IModelFileRead.
 unit Sprite3DBuilderHelpers;
@@ -28,22 +25,17 @@ unit Sprite3DBuilderHelpers;
   The application keeps three kinds of code apart. The units in ui only
   handle the user interface; the units in lib are a library with no
   knowledge of this application, usable in other projects; and this unit
-  holds what is left: the application's own rules, such as where models are
-  found, what settings are kept and how a loaded model is placed.
-  It uses the library and the RTL, never the UI.
+  holds what is left: the application's own rules, such as where the asset
+  kits are found and what settings are kept. It uses the library and the
+  RTL, never the UI.
 
   TSprite3DAppSettings holds the settings kept between sessions, in
   settings.json in the application's own per-user folder, SupportFolder.
-  The measured bounds of each model's animations are kept there too, one
-  file per model in its bounds folder, through LoadAnimationBoundsCache and
-  SaveAnimationBoundsCache.
 
-  Loading a model through LoadModelFile also registers Gorilla3D's loaders
-  for glTF, FBX, OBJ, USD, Collada, STL and PLY files, as this unit uses
-  them. Each model the application keeps loaded, in its Models list, is
-  held in a TSprite3DModelSlot, made with NewModelSlot, found with
-  ModelSlotIndex and freed with FreeModelSlot; ShowModelWithHelpers shows
-  or hides one with everything drawn beside it.
+  AssetsFolder finds the assets folder the kits are kept in, and
+  AssetModelFiles lists the models in one of its folders. Loading a model
+  through LoadModelFile also registers Gorilla3D's loaders for glTF, FBX,
+  OBJ, USD, Collada, STL and PLY files, as this unit uses them.
 
   All routines are for the main thread, except the members of
   IModelFileRead.
@@ -54,7 +46,7 @@ interface
 uses
   System.SysUtils, System.Types, System.UITypes, System.Math.Vectors,
   FMX.Graphics, FMX.Types3D, FMX.Controls3D,
-  System.JSON, Gorilla.Model, Sprite3DStorage, Sprite3DSweep, Neon.Core.Attributes;
+  System.JSON, Gorilla.Model, Sprite3DStorage, Neon.Core.Attributes;
 
 const
   //** @abstract(The application's name, used for its per-user folder.)
@@ -75,16 +67,24 @@ const
   //** @abstract(The frame rate the view is drawn at until File, Settings changes it, and the
   //** most it offers where the display's refresh rate is not known.)
   VIEW_FPS_DEFAULT = 60;
+  //** @abstract(The level grid's spacing until settings.json says otherwise: a small floor
+  //** tile of the dungeon kit, 2 units across.)
+  GRID_SIZE_DEFAULT = 2.0;
+  //** @abstract(The smallest grid spacing settings.json may give.)
+  GRID_SIZE_MIN = 0.01;
+  //** @abstract(The largest grid spacing settings.json may give.)
+  GRID_SIZE_MAX = 1000.0;
+  //** @abstract(The name of the folder the asset kits are kept in, off the repository root.)
+  ASSETS_FOLDER_NAME = 'assets';
+  //** @abstract(The width and height of every asset thumbnail, in pixels.)
+  //**
+  //** A cached thumbnail of another size is made again, so changing this remakes them all.
+  THUMBNAIL_SIZE = 256;
+  //** @abstract(The name of the thumbnail cache's folder in SupportFolder, beside
+  //** settings.json.)
+  THUMBNAIL_FOLDER_NAME = 'thumbnails';
 
 type
-  //** @abstract(What the application loads when it starts and no file was asked for.)
-  //**
-  //** @code(saNone) loads nothing; @code(saDefaultModel) loads the sample model;
-  //** @code(saLastModel) loads the model last opened, or the sample model if it has gone;
-  //** after Clear has emptied the Models list it loads nothing. A file the operating system asks the application to open always
-  //** comes first.
-  TSprite3DStartupAction = (saNone, saDefaultModel, saLastModel);
-
   //** @abstract(The application's look: FMX's own default style, or one of the FMX styles
   //** that come with RAD Studio.)
   //**
@@ -139,8 +139,6 @@ type
 
   //** @abstract(The choices made in File, Settings, together.)
   TSprite3DGeneralSettings = record
-    //** @abstract(What is loaded at start-up.)
-    StartupAction: TSprite3DStartupAction;
     //** @abstract(The application's look.)
     Theme: TSprite3DTheme;
     //** @abstract(The graphics processor asked for; Windows only.)
@@ -160,39 +158,6 @@ type
   //** declares the cast. Because it is in the interface section, other units can use it too.
   TControl3DAccess = class(TControl3D);
 
-  //** @abstract(One loaded model and what was measured of it as it loaded: one entry of the
-  //** Models list.)
-  //**
-  //** The application keeps every model it has loaded in the viewport, hidden while another
-  //** is shown, each with one of these. Make one with NewModelSlot, find one by file with
-  //** ModelSlotIndex, and free its model with FreeModelSlot. A record with Model nil stands
-  //** for no model; EmptyModelSlot returns one.
-  TSprite3DModelSlot = record
-    //** @abstract(The model, parented to the viewport; nil for none.)
-    Model: TGorillaModel;
-    //** @abstract(The file it was loaded from, expanded.)
-    FileName: String;
-    //** @abstract(The name it is listed by: its file's name without the
-    //** extension, unless that was taken and it was renamed with UniqueModelName.)
-    Name: String;
-    //** @abstract(Its own bounds, measured as it loaded, before any helper was added.)
-    Box: TBoundingBox;
-    //** @abstract(Each animation's bounds over all its poses; empty for a model without
-    //** animations, as every model is in Sprite3DBuilder, which shows each in its rest pose.)
-    Bounds: TArray<TAnimationBounds>;
-    //** @abstract(Every animation the model has, in its order; empty for a static model.)
-    Names: TArray<String>;
-    //** @abstract(The animations used; every one, as loaded.)
-    Used: TArray<String>;
-    //** @abstract(Whether the model has animations; always False in Sprite3DBuilder, which loads
-    //** every model in its rest pose.)
-    IsAnimated: Boolean;
-    //** @abstract(When it was first listed, counting up from 1, so the static models can be
-    //** shown in the order they were opened whether or not Models, Models Used lists them;
-    //** 0 until it is listed.)
-    Order: Integer;
-  end;
-
   //** @abstract(The application's settings, kept between sessions in settings.json.)
   //**
   //** Create it, call Load once at start-up, and call Save after changing a setting. The file
@@ -203,9 +168,6 @@ type
   TSprite3DAppSettings = class(TSprite3DJsonSettings)
   private
     FShowBoundingBox: Boolean;
-    FShowAxes: Boolean;
-    FShowSweptVolume: Boolean;
-    FShowCombinedSweptVolume: Boolean;
     FOrthographic: Boolean;
     //** @abstract(Backing fields for Headlight and OriginalLight.)
     FHeadlight, FOriginalLight: Boolean;
@@ -220,15 +182,20 @@ type
     FPanZ: Single;
     FKeepShift: Boolean;
     FDistanceFactor: Single;
-    FStartupAction: TSprite3DStartupAction;
-    FLastModel: String;
     FTheme: String;
     FGpuMode: TSprite3DGpuMode;
     FViewFps: Integer;
     FMinifyJson: Boolean;
     FMouseView: Boolean;
+    //** @abstract(Backing fields for GridSize and AssetFolder.)
+    FGridSize: Single;
+    FAssetFolder: String;
     procedure SetViewFps(const Value: Integer);
     procedure SetMinifyJson(const Value: Boolean);
+    //** @abstract(Setter for GridSize: keeps it within GRID_SIZE_MIN to GRID_SIZE_MAX.)
+    //**
+    //** @param(Value The spacing wanted.)
+    procedure SetGridSize(const Value: Single);
     function GetThemeKind: TSprite3DTheme;
     procedure SetThemeKind(const Value: TSprite3DTheme);
     //** @abstract(Getter for ProjectionKind.)
@@ -248,6 +215,13 @@ type
     //**
     //** @returns(The folder's full path, without a trailing path delimiter.)
     class function SupportFolder: String; static;
+    //** @abstract(The thumbnail cache: THUMBNAIL_FOLDER_NAME in SupportFolder, beside
+    //** settings.json; see Sprite3DAssetCache.)
+    //**
+    //** Made when the first thumbnail is saved.
+    //**
+    //** @returns(The folder's full path, without a trailing path delimiter.)
+    class function ThumbnailFolder: String; static;
     //** @abstract(Theme as a TSprite3DTheme.)
     //**
     //** A name in settings.json that is not one of the themes, such as one from an older
@@ -266,21 +240,6 @@ type
     //**
     //** Stored as @code(showBoundingBox).
     property ShowBoundingBox: Boolean read FShowBoundingBox write FShowBoundingBox;
-    //** @abstract(Whether View, Show axes is ticked on the main form; False by default.)
-    //**
-    //** Stored as @code(showAxes).
-    property ShowAxes: Boolean read FShowAxes write FShowAxes;
-    //** @abstract(Whether View, Show Model Volume is ticked on the main form; False by
-    //** default.)
-    //**
-    //** Stored as @code(showSweptVolume).
-    property ShowSweptVolume: Boolean read FShowSweptVolume write FShowSweptVolume;
-    //** @abstract(Whether View, Show Animation Volume is ticked on the main form; False by
-    //** default.)
-    //**
-    //** Stored as @code(showCombinedSweptVolume).
-    property ShowCombinedSweptVolume: Boolean read FShowCombinedSweptVolume
-      write FShowCombinedSweptVolume;
     //** @abstract(Whether the main form's projection is orthographic; False by default.)
     //**
     //** Stored as @code(orthographic). Before View, Projection it was the View, Orthographic
@@ -359,16 +318,6 @@ type
     //** Stored as @code(distanceFactor); saved, and read at start-up, only while KeepShift.
     //** A value of 0 or less counts as 1.
     property DistanceFactor: Single read FDistanceFactor write FDistanceFactor;
-    //** @abstract(What is loaded at start-up; nothing by default.)
-    //**
-    //** Stored as @code(startupAction), by name.
-    property StartupAction: TSprite3DStartupAction read FStartupAction write FStartupAction;
-    //** @abstract(The full path of the model last loaded, of either kind; empty until one is,
-    //** or once Clear has emptied both tabs.)
-    //**
-    //** Stored as @code(lastModel). Used when StartupAction is saLastModel, which loads it
-    //** last, so its tab is the one shown.
-    property LastModel: String read FLastModel write FLastModel;
     //** @abstract(The application's look, by name; Default by default.)
     //**
     //** Stored as @code(theme): one of Default, Dark, AquaGraphite, RubyGraphite and
@@ -399,6 +348,17 @@ type
     //** Only the tick is kept: the turn and zoom the mouse gives the view never are, and
     //** each session starts from the normal view. Desktop only; ignored on Android and iOS.
     property MouseView: Boolean read FMouseView write FMouseView;
+    //** @abstract(The level grid's spacing, in the kit's own units; GRID_SIZE_DEFAULT, 2, by
+    //** default, a floor tile of the dungeon kit.)
+    //**
+    //** Stored as @code(gridSize). A value outside GRID_SIZE_MIN to GRID_SIZE_MAX reads as the
+    //** default. Set only in settings.json for now.
+    property GridSize: Single read FGridSize write SetGridSize;
+    //** @abstract(The folder File, Open Asset Folder last chose; empty until one is.)
+    //**
+    //** Stored as @code(assetFolder). The next Open Asset Folder starts there, or in
+    //** AssetsFolder while it is empty or gone.
+    property AssetFolder: String read FAssetFolder write FAssetFolder;
   end;
 
 //** @abstract(Shifts an angle in degrees by whole turns into the range 0 to 360.)
@@ -408,20 +368,6 @@ type
 //** @returns(The same direction as an angle from 0 up to, but not including, 360.)
 function Wrap360(const ADegrees: Single): Single;
 
-//** @abstract(The abbreviated name of a point of the 32-point compass, if a bearing is on
-//** one.)
-//**
-//** The points are 11.25 degrees apart, named as the mariner's compass names them: the
-//** cardinal points N, E, S and W; the intercardinal NE, SE, SW and NW; the eight winds
-//** between them, NNE, ENE and so on; and the sixteen "by" points, NbE (north by east),
-//** NEbN and so on.
-//**
-//** @param(ADegrees A bearing in degrees clockwise from north, any number of turns.)
-//**
-//** @returns(The point's abbreviation, such as N, NbE, NNE or NEbN, for a bearing within a
-//** hundredth of a degree of one; otherwise an empty string, so a whole-degree bearing only
-//** has a name on the eight points that fall on whole degrees.)
-function CompassPointName(const ADegrees: Single): String;
 
 //** @abstract(Formats an angle from Wrap360 as whole degrees for a readout.)
 //**
@@ -442,17 +388,17 @@ function DegreesText(const ADegrees: Single): String;
 //** @returns(A folder path ending in a path delimiter.)
 function DefaultModelDir: String;
 
-//** @abstract(Replaces a model's contents with a model file and starts its last animation.)
+//** @abstract(Replaces a model's contents with a model file.)
 //**
-//** Clears AModel, loads AFileName into it, and, if the file has animations, plays the one
-//** whose name sorts last. Blocks while the file loads.
+//** Clears AModel and loads AFileName into it, its animations baked but none played.
+//** Blocks while the file loads.
 //**
 //** @param(AModel The model to load into; its old contents are removed first.)
 //**
 //** @param(AFileName A glTF, FBX, OBJ, USD, Collada, STL or PLY file.)
 //**
 //** @param(ABox The model's bounding box straight after loading, before anything is added
-//** to it or it is moved; pass it to PlaceModel.)
+//** to it or it is moved, in its own coordinates.)
 //**
 //** @returns(The names of the model's animations in sorted order; empty if it has none.)
 //**
@@ -461,77 +407,11 @@ function DefaultModelDir: String;
 function LoadModelFile(const AModel: TGorillaModel; const AFileName: String;
   out ABox: TBoundingBox): TArray<String>;
 
-//** @abstract(Centres a loaded model on its bounding box and turns it right way up.)
-//**
-//** Moves AModel to the centre of ABox and turns it 180 degrees about X, which the
-//** application's models need to stand upright.
-//**
-//** @param(AModel The model to place.)
-//**
-//** @param(ABox The box LoadModelFile returned for it.)
-procedure PlaceModel(const AModel: TGorillaModel; const ABox: TBoundingBox);
 
-//** @abstract(A slot holding no model: Model nil, every other field empty or zero.)
-//**
-//** Use this rather than @code(Default(TSprite3DModelSlot)): where Gorilla.DefTypes is in
-//** scope, @code(Default) names its TGorillaOAuthMode value instead of the intrinsic.
-//**
-//** @returns(The empty slot.)
-function EmptyModelSlot: TSprite3DModelSlot;
 
-//** @abstract(A slot for a model just loaded, with every animation used.)
-//**
-//** IsAnimated is set from ANames: True if the model has any animation. Name is the file's
-//** name without its extension.
-//**
-//** @param(AModel The model, loaded with LoadModelFile and placed with PlaceModel.)
-//**
-//** @param(AFileName The file it was loaded from, expanded.)
-//**
-//** @param(ABox The box LoadModelFile returned for it.)
-//**
-//** @param(ABounds Each animation's bounds, measured or from the bounds cache; empty for a
-//** model without animations.)
-//**
-//** @param(ANames The names LoadModelFile returned: its animations, empty if it has none.)
-//**
-//** @returns(The slot; it does not own the model until FreeModelSlot is called on it.)
-function NewModelSlot(const AModel: TGorillaModel; const AFileName: String;
-  const ABox: TBoundingBox; const ABounds: TArray<TAnimationBounds>;
-  const ANames: TArray<String>): TSprite3DModelSlot;
 
-//** @abstract(Which of ASlots was loaded from AFileName.)
-//**
-//** Names are compared expanded, in this platform's form, as the platform compares them.
-//**
-//** @param(ASlots The slots to look in.)
-//**
-//** @param(AFileName A model file.)
-//**
-//** @returns(The index of the first slot loaded from that file, or -1 if there is none.)
-function ModelSlotIndex(const ASlots: TArray<TSprite3DModelSlot>;
-  const AFileName: String): Integer;
 
-//** @abstract(Which of ASlots is listed as AName.)
-//**
-//** @param(ASlots The slots to look in.)
-//**
-//** @param(AName A name as a slot's Name gives it; compared ignoring case, as files that
-//** differ only in case would be hard to tell apart.)
-//**
-//** @returns(The index of the first slot with that name, or -1 if there is none.)
-function ModelSlotNameIndex(const ASlots: TArray<TSprite3DModelSlot>;
-  const AName: String): Integer;
 
-//** @abstract(A name based on AName that no slot of ASlots has: AName itself if it is free,
-//** otherwise @code(AName (2)), @code(AName (3)) and so on, the first that is free.)
-//**
-//** @param(AName The name wanted.)
-//**
-//** @param(ASlots The slots whose names are taken.)
-//**
-//** @returns(The free name.)
-function UniqueModelName(const AName: String; const ASlots: TArray<TSprite3DModelSlot>): String;
 
 //** @abstract(The file spec of every model format LoadModelFile loads.)
 //**
@@ -539,25 +419,7 @@ function UniqueModelName(const AName: String; const ASlots: TArray<TSprite3DMode
 //** from the same list IsModelFile uses.)
 function AllModelsFileSpec: String;
 
-//** @abstract(Frees a slot's model, with its helpers, and empties the slot.)
-//**
-//** The model's axes, grid and swept volumes are its own components, so go
-//** with it. Afterwards ASlot is EmptyModelSlot. The caller must first
-//** stop using the model, if it is the one shown.
-//**
-//** @param(ASlot The slot whose model goes; nothing is freed if its Model is nil.)
-procedure FreeModelSlot(var ASlot: TSprite3DModelSlot);
 
-//** @abstract(Shows or hides a model together with what is drawn beside it.)
-//**
-//** Its axes and grid, from Sprite3DAxes and Sprite3DGrid, and its swept volumes, from
-//** Sprite3DSweep, are drawn in the model's parent rather than as its children, so they do
-//** not follow the model's Visible: each is shown or hidden here with it.
-//**
-//** @param(AModel The model; nothing happens if it is nil.)
-//**
-//** @param(AShown True to show it, False to hide it.)
-procedure ShowModelWithHelpers(const AModel: TGorillaModel; const AShown: Boolean);
 
 //** @abstract(Whether a file is a model LoadModelFile can load, judged by its extension.)
 //**
@@ -569,17 +431,39 @@ procedure ShowModelWithHelpers(const AModel: TGorillaModel; const AShown: Boolea
 //** @returns(True if its extension is one of the model formats.)
 function IsModelFile(const AFileName: String): Boolean;
 
-//** @abstract(The model to load at start-up: the first one the system asked to open, or
-//** ADefault.)
+//** @abstract(The folder the asset kits are kept in: an @code(assets) folder beside the
+//** program or in one of the folders above it.)
 //**
-//** @param(ARequested The files the operating system asked the application to open, oldest
-//** first, as Sprite3DOpenFiles collects them; files that are not models are skipped.)
+//** Looks in the program's own folder, then up to five folders above it, so it finds the
+//** repository's @code(assets) folder when the program runs from its build folder
+//** (@code(src\Win64\Debug)), or from inside a macOS bundle. If there is none, gives
+//** DefaultModelDir.
 //**
-//** @param(ADefault The model to load when none was asked for.)
+//** @returns(The folder's full path, without a trailing path delimiter.)
+function AssetsFolder: String;
+
+//** @abstract(The model files in AFolder, not in its sub-folders, sorted by name.)
 //**
-//** @returns(The first model in ARequested, or ADefault if it holds none.)
-function StartupModelFile(const ARequested: TArray<String>;
-  const ADefault: String): String;
+//** A file counts if IsModelFile says it is a model, so a glTF's @code(.bin) and its
+//** textures are left out.
+//**
+//** @param(AFolder The folder to look in.)
+//**
+//** @returns(Their full paths; empty if there are none or the folder cannot be read.)
+function AssetModelFiles(const AFolder: String): TArray<String>;
+
+//** @abstract(The group a model is shown in: the first word of its name, before the first
+//** underscore, in lower case.)
+//**
+//** So @code(wall_corner_small) is in @code(wall), and a name with no underscore is a group
+//** of its own name. The asset form also puts a plural group, such as @code(crates), with its
+//** singular, @code(crate), when a folder has both.
+//**
+//** @param(AName The model's name, its file's name without the extension.)
+//**
+//** @returns(The group's name; never empty for a name that is not.)
+function AssetGroupName(const AName: String): String;
+
 
 type
   //** @abstract(A read of a model file on a worker thread, from StartModelFileRead.)
@@ -621,49 +505,8 @@ type
 //** @returns(The read under way.)
 function StartModelFileRead(const AFileName: String): IModelFileRead;
 
-//** @abstract(Where the measured animation bounds of a model file are kept between
-//** sessions.)
-//**
-//** A file in the bounds folder of SupportFolder, named from a hash of the model's full path,
-//** size and time of last change, so a model that is changed or replaced gets a new file
-//** and its old figures are never used. Nothing is created.
-//**
-//** @param(AModelFile The model file; it must exist.)
-//**
-//** @returns(The cache file's path, or empty if the model file cannot be found.)
-function AnimationBoundsCacheFile(const AModelFile: String): String;
 
-//** @abstract(Reads the animation bounds saved for a model file, so they need not be measured
-//** again.)
-//**
-//** The figures are used only if they were saved for exactly the animations named, in any
-//** order, and by this version of the cache; anything else, a damaged file included, gives
-//** False and leaves the model to be measured.
-//**
-//** @param(AModelFile The model file, as loaded.)
-//**
-//** @param(ANames Every animation the model has, as LoadModelFile listed them.)
-//**
-//** @param(ABounds The figures, in the order they were saved; empty when False, and without
-//** any animation that had no pose to measure.)
-//**
-//** @returns(True if usable figures were read.)
-function LoadAnimationBoundsCache(const AModelFile: String; const ANames: TArray<String>;
-  out ABounds: TArray<TAnimationBounds>): Boolean;
 
-//** @abstract(Saves a model file's measured animation bounds for the next time it is
-//** loaded.)
-//**
-//** Writes AnimationBoundsCacheFile as JSON, making the folder if need be. A failure to write
-//** is ignored: the model is simply measured again next time.
-//**
-//** @param(AModelFile The model file the figures were measured from.)
-//**
-//** @param(ANames Every animation the model has, as LoadModelFile listed them.)
-//**
-//** @param(ABounds The figures, as TAnimationBoundsMeasurer gave them.)
-procedure SaveAnimationBoundsCache(const AModelFile: String; const ANames: TArray<String>;
-  const ABounds: TArray<TAnimationBounds>);
 
 //** @abstract(The names of a projection: its settings key and caption.)
 //**
@@ -728,7 +571,7 @@ implementation
 uses
   System.Classes, System.Math, System.IOUtils, System.Hash, System.StrUtils,
   System.Threading, System.SyncObjs, System.Generics.Collections,
-  OSPaths, JsonText, Sprite3DStyles, Sprite3DTitleBar, Sprite3DAxes, Sprite3DGrid,
+  OSPaths, JsonText, Sprite3DStyles, Sprite3DTitleBar,
   {$IF DEFINED(MSWINDOWS)}
   GpuPreference,
   {$ENDIF}
@@ -743,22 +586,14 @@ uses
   Gorilla.STL.Loader,
   Gorilla.PLY.Loader;
 
-const
-  // The turn every loaded model is given so that it stands upright
-  MODEL_ROTATION: TPoint3D = (X: 180; Y: 0; Z: 0);
-
 { TSprite3DAppSettings }
 
 constructor TSprite3DAppSettings.Create;
 begin
   inherited Create(TPath.Combine(SupportFolder, SETTINGS_FILE_NAME));
-  // As the main form's check boxes start: all off, the first run showing
-  // the model alone; a settings.json without these keys leaves them so.
-  // The grid is not among them: it is always shown.
+  // As the main form's check box starts: off; a settings.json without the
+  // key leaves it so
   FShowBoundingBox := False;
-  FShowAxes := False;
-  FShowSweptVolume := False;
-  FShowCombinedSweptVolume := False;
   FOrthographic := False;
   // Empty: decided by FOrthographic, so a file from before View, Projection
   // keeps its projection
@@ -776,15 +611,23 @@ begin
   FPanZ := 0;
   FKeepShift := False;
   FDistanceFactor := 1;
-  // File, Settings: nothing loaded at the first start, as no sample model
-  // comes with the program
-  FStartupAction := saNone;
-  FLastModel := String.Empty;
   SetThemeKind(thDefault);
   FGpuMode := gmSystem;
   FViewFps := VIEW_FPS_DEFAULT;
   SetMinifyJson(False);
   FMouseView := False;
+  FGridSize := GRID_SIZE_DEFAULT;
+  FAssetFolder := String.Empty;
+end;
+
+procedure TSprite3DAppSettings.SetGridSize(const Value: Single);
+begin
+  // A bad value, as from a settings.json edited by hand, falls back to the
+  // default rather than leaving a grid that cannot be drawn
+  if (Value >= GRID_SIZE_MIN) and (Value <= GRID_SIZE_MAX) then
+    FGridSize := Value
+  else
+    FGridSize := GRID_SIZE_DEFAULT;
 end;
 
 procedure TSprite3DAppSettings.SetViewFps(const Value: Integer);
@@ -803,25 +646,9 @@ begin
   Result := OSFriendlyPath(AppDataFolder(APP_NAME));
 end;
 
-function CompassPointName(const ADegrees: Single): String;
-const
-  // The 32 points, from north clockwise, 11.25 degrees apart
-  POINT_STEP = 360 / 32;
-  POINT_TOLERANCE = 0.01;
-  NAMES: array[0..31] of String = (
-    'N', 'NbE', 'NNE', 'NEbN', 'NE', 'NEbE', 'ENE', 'EbN',
-    'E', 'EbS', 'ESE', 'SEbE', 'SE', 'SEbS', 'SSE', 'SbE',
-    'S', 'SbW', 'SSW', 'SWbS', 'SW', 'SWbW', 'WSW', 'WbS',
-    'W', 'WbN', 'WNW', 'NWbW', 'NW', 'NWbN', 'NNW', 'NbW');
-var
-  Angle: Single;
-  Steps: Integer;
+class function TSprite3DAppSettings.ThumbnailFolder: String;
 begin
-  Result := String.Empty;
-  Angle := Wrap360(ADegrees);
-  Steps := Round(Angle / POINT_STEP);
-  if Abs(Angle - Steps * POINT_STEP) <= POINT_TOLERANCE then
-    Result := NAMES[Steps mod 32];
+  Result := OSFriendlyPath(TPath.Combine(SupportFolder, THUMBNAIL_FOLDER_NAME));
 end;
 
 function Wrap360(const ADegrees: Single): Single;
@@ -872,13 +699,61 @@ begin
   Result := False;
 end;
 
-function StartupModelFile(const ARequested: TArray<String>;
-  const ADefault: String): String;
+function AssetsFolder: String;
+const
+  // The program's folder and this many above it
+  LEVELS_UP = 5;
+var
+  Folder, Candidate: String;
 begin
-  for var FileName in ARequested do
-    if IsModelFile(FileName) then
-      Exit(FileName);
-  Result := ADefault;
+  Folder := ExcludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)));
+  for var Level := 0 to LEVELS_UP do
+  begin
+    Candidate := TPath.Combine(Folder, ASSETS_FOLDER_NAME);
+    if TDirectory.Exists(Candidate) then
+      Exit(ExpandFileName(Candidate));
+    if ExtractFilePath(Folder) = String.Empty then
+      Break;   // at the top of the drive
+    Folder := ExcludeTrailingPathDelimiter(ExtractFilePath(Folder));
+  end;
+  Result := ExcludeTrailingPathDelimiter(DefaultModelDir);
+end;
+
+function AssetModelFiles(const AFolder: String): TArray<String>;
+var
+  Folder: String;
+  List: TStringList;
+begin
+  Result := nil;
+  Folder := OSFriendlyPath(AFolder);
+  if not TDirectory.Exists(Folder) then
+    Exit;
+  List := TStringList.Create;
+  try
+    try
+      for var FileName in TDirectory.GetFiles(Folder) do
+        if IsModelFile(FileName) then
+          List.Add(FileName);
+    except
+      on Exception do
+        Exit;   // unreadable: as if empty
+    end;
+    List.Sort;
+    Result := List.ToStringArray;
+  finally
+    List.Free;
+  end;
+end;
+
+function AssetGroupName(const AName: String): String;
+var
+  At: Integer;
+begin
+  At := AName.IndexOf('_');
+  if At > 0 then
+    Result := AName.Substring(0, At).ToLower
+  else
+    Result := AName.ToLower;
 end;
 
 type
@@ -988,153 +863,6 @@ const
   BOUNDS_CACHE_VERSION = 2;
   BOUNDS_CACHE_FOLDER = 'bounds';
 
-function AnimationBoundsCacheFile(const AModelFile: String): String;
-var
-  Search: TSearchRec;
-  FullName, Key: String;
-begin
-  Result := String.Empty;
-  FullName := ExpandFileName(OSFriendlyPath(AModelFile));
-  if FindFirst(FullName, faAnyFile, Search) <> 0 then
-    Exit;
-  try
-    Key := Format('%s|%d|%s|%d', [FullName, Search.Size,
-      FormatDateTime('yyyymmddhhnnsszzz', Search.TimeStamp), BOUNDS_CACHE_VERSION]);
-  finally
-    FindClose(Search);
-  end;
-  Result := OSFriendlyPath(TPath.Combine(TPath.Combine(TSprite3DAppSettings.SupportFolder,
-    BOUNDS_CACHE_FOLDER), THashMD5.GetHashString(Key) + '.json'));
-end;
-
-function LoadAnimationBoundsCache(const AModelFile: String; const ANames: TArray<String>;
-  out ABounds: TArray<TAnimationBounds>): Boolean;
-var
-  FileName: String;
-  Root: TJSONValue;
-  Items, Names: TJSONArray;
-  Item: TJSONObject;
-  Box: TJSONArray;
-  Entry: TAnimationBounds;
-  Found: TArray<TAnimationBounds>;
-  Saved: TArray<String>;
-  Name: String;
-
-  function Coord(const AIndex: Integer): Single;
-  begin
-    Result := (Box.Items[AIndex] as TJSONNumber).AsDouble;
-  end;
-
-begin
-  Result := False;
-  ABounds := nil;
-  FileName := AnimationBoundsCacheFile(AModelFile);
-  if (FileName = String.Empty) or not FileExists(FileName) then
-    Exit;
-  Root := nil;
-  try
-    try
-      Root := TJSONObject.ParseJSONValue(TFile.ReadAllText(FileName, TEncoding.UTF8));
-      if not (Root is TJSONObject) or
-        (TJSONObject(Root).GetValue<Integer>('version', 0) <> BOUNDS_CACHE_VERSION) then
-        Exit;
-      // Saved for exactly these animations, each once
-      Names := TJSONObject(Root).GetValue('names') as TJSONArray;
-      if (Names = nil) or (Names.Count <> Length(ANames)) then
-        Exit;
-      for var I := 0 to Names.Count - 1 do
-        Saved := Saved + [Names.Items[I].Value];
-      for Name in ANames do
-      begin
-        var Count := 0;
-        for var Other in Saved do
-          if Other = Name then
-            Inc(Count);
-        if Count <> 1 then
-          Exit;
-      end;
-      Items := TJSONObject(Root).GetValue('animations') as TJSONArray;
-      if (Items = nil) or (Items.Count > Length(ANames)) then
-        Exit;
-      for var I := 0 to Items.Count - 1 do
-      begin
-        Item := Items.Items[I] as TJSONObject;
-        Box := Item.GetValue('box') as TJSONArray;
-        if (Box = nil) or (Box.Count <> 6) then
-          Exit;
-        Entry.Name := Item.GetValue<String>('name');
-        Entry.Poses := Item.GetValue<Integer>('poses');
-        Entry.Box.TopLeftNear := Point3D(Coord(0), Coord(1), Coord(2));
-        Entry.Box.BottomRightFar := Point3D(Coord(3), Coord(4), Coord(5));
-        if IndexStr(Entry.Name, Saved) < 0 then
-          Exit;
-        Found := Found + [Entry];
-      end;
-      ABounds := Found;
-      Result := True;
-    except
-      ABounds := nil;   // damaged or unreadable: measure again
-      Result := False;
-    end;
-  finally
-    Root.Free;
-  end;
-end;
-
-procedure SaveAnimationBoundsCache(const AModelFile: String; const ANames: TArray<String>;
-  const ABounds: TArray<TAnimationBounds>);
-var
-  FileName: String;
-  Root, Item: TJSONObject;
-  Items, Box, Names: TJSONArray;
-  Entry: TAnimationBounds;
-
-  procedure AddCoord(const AValue: Double);
-  begin
-    Box.AddElement(TJSONNumber.Create(AValue));
-  end;
-
-begin
-  FileName := AnimationBoundsCacheFile(AModelFile);
-  if FileName = String.Empty then
-    Exit;
-  Root := TJSONObject.Create;
-  try
-    Root.AddPair('version', TJSONNumber.Create(BOUNDS_CACHE_VERSION));
-    Root.AddPair('model', ExpandFileName(AModelFile));
-    Names := TJSONArray.Create;
-    Root.AddPair('names', Names);
-    for var Name in ANames do
-      Names.Add(Name);
-    Items := TJSONArray.Create;
-    Root.AddPair('animations', Items);
-    for Entry in ABounds do
-    begin
-      Item := TJSONObject.Create;
-      Items.AddElement(Item);
-      Item.AddPair('name', Entry.Name);
-      Item.AddPair('poses', TJSONNumber.Create(Entry.Poses));
-      Box := TJSONArray.Create;
-      Item.AddPair('box', Box);
-      AddCoord(Entry.Box.TopLeftNear.X);
-      AddCoord(Entry.Box.TopLeftNear.Y);
-      AddCoord(Entry.Box.TopLeftNear.Z);
-      AddCoord(Entry.Box.BottomRightFar.X);
-      AddCoord(Entry.Box.BottomRightFar.Y);
-      AddCoord(Entry.Box.BottomRightFar.Z);
-    end;
-    try
-      ForceDirectories(ExtractFilePath(FileName));
-      // UTF-8 without a byte order mark, indented or minified as asked
-      TFile.WriteAllBytes(FileName, JsonToBytes(Root));
-    except
-      // Not kept: measured again next time
-    end;
-  finally
-    Root.Free;
-  end;
-end;
-
 function LoadModelFile(const AModel: TGorillaModel; const AFileName: String;
   out ABox: TBoundingBox): TArray<String>;
 var
@@ -1158,120 +886,6 @@ begin
   // Taken before the caller adds axes or a grid to the model, which would
   // otherwise count towards it
   ABox := AModel.GetBoundingBox();
-end;
-
-procedure PlaceModel(const AModel: TGorillaModel; const ABox: TBoundingBox);
-begin
-  AModel.Position.Point := Point3D(ABox.TopLeftNear.X + (ABox.Width / 2),
-                                   ABox.TopLeftNear.Y + (ABox.Height / 2),
-                                   ABox.TopLeftNear.Z + (ABox.Depth / 2));
-  AModel.RotationAngle.X := MODEL_ROTATION.X;
-  AModel.RotationAngle.Y := MODEL_ROTATION.Y;
-  AModel.RotationAngle.Z := MODEL_ROTATION.Z;
-end;
-
-function EmptyModelSlot: TSprite3DModelSlot;
-begin
-  // Every field set; Default() would mean Gorilla's TGorillaOAuthMode.Default
-  Result.Model := nil;
-  Result.FileName := String.Empty;
-  Result.Name := String.Empty;
-  Result.Box.TopLeftNear := TPoint3D.Zero;
-  Result.Box.BottomRightFar := TPoint3D.Zero;
-  Result.Bounds := nil;
-  Result.Names := nil;
-  Result.Used := nil;
-  Result.IsAnimated := False;
-  Result.Order := 0;
-end;
-
-function NewModelSlot(const AModel: TGorillaModel; const AFileName: String;
-  const ABox: TBoundingBox; const ABounds: TArray<TAnimationBounds>;
-  const ANames: TArray<String>): TSprite3DModelSlot;
-begin
-  Result := EmptyModelSlot;
-  Result.Model := AModel;
-  Result.FileName := AFileName;
-  Result.Name := TPath.GetFileNameWithoutExtension(AFileName);
-  Result.Box := ABox;
-  Result.Bounds := ABounds;
-  Result.Names := ANames;
-  Result.Used := Copy(ANames);
-  Result.IsAnimated := Length(ANames) > 0;
-end;
-
-function ModelSlotIndex(const ASlots: TArray<TSprite3DModelSlot>;
-  const AFileName: String): Integer;
-var
-  Wanted: String;
-  I: Integer;
-begin
-  Result := -1;
-  Wanted := ExpandFileName(OSFriendlyPath(AFileName));
-  for I := 0 to High(ASlots) do
-    if SameFileName(ExpandFileName(OSFriendlyPath(ASlots[I].FileName)), Wanted) then
-      Exit(I);
-end;
-
-function ModelSlotNameIndex(const ASlots: TArray<TSprite3DModelSlot>;
-  const AName: String): Integer;
-var
-  I: Integer;
-begin
-  Result := -1;
-  for I := 0 to High(ASlots) do
-    if SameText(ASlots[I].Name, AName) then
-      Exit(I);
-end;
-
-function UniqueModelName(const AName: String; const ASlots: TArray<TSprite3DModelSlot>): String;
-var
-  Number: Integer;
-begin
-  Result := AName;
-  Number := 1;
-  while ModelSlotNameIndex(ASlots, Result) >= 0 do
-  begin
-    Inc(Number);
-    Result := Format('%s (%d)', [AName, Number]);
-  end;
-end;
-
-procedure FreeModelSlot(var ASlot: TSprite3DModelSlot);
-var
-  Model: TGorillaModel;
-begin
-  Model := ASlot.Model;
-  ASlot := EmptyModelSlot;
-  if Model = nil then
-    Exit;
-  Model.Parent := nil;
-  Model.Free;
-end;
-
-procedure ShowModelWithHelpers(const AModel: TGorillaModel; const AShown: Boolean);
-var
-  Sweep: TModelSweep;
-  Combined: TCombinedSweep;
-  Axes: TModelAxes;
-  Grid: TModelGrid;
-begin
-  if AModel = nil then
-    Exit;
-  AModel.Visible := AShown;
-  Sweep := FindModelSweep(AModel);
-  if Sweep <> nil then
-    Sweep.Visible := AShown;
-  Combined := FindCombinedSweep(AModel);
-  if Combined <> nil then
-    Combined.Visible := AShown;
-  // Hidden with Shown, as their lines are not their children either
-  Axes := FindModelAxes(AModel);
-  if Axes <> nil then
-    Axes.Shown := AShown;
-  Grid := FindModelGrid(AModel);
-  if Grid <> nil then
-    Grid.Shown := AShown;
 end;
 
 type
@@ -1432,7 +1046,6 @@ end;
 
 function ReadGeneralSettings(const ASettings: TSprite3DAppSettings): TSprite3DGeneralSettings;
 begin
-  Result.StartupAction := ASettings.StartupAction;
   Result.Theme := ASettings.ThemeKind;
   Result.ViewFps := ASettings.ViewFps;
   Result.MinifyJson := ASettings.MinifyJson;

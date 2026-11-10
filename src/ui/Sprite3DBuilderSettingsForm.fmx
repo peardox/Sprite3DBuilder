@@ -37,49 +37,6 @@ object GeneralSettingsForm: TGeneralSettingsForm
           Size.Width = 420.000000000000000000
           Size.Height = 480.000000000000000000
           Size.PlatformDefault = False
-          object StartupGroup: TGroupBox
-            Align = Top
-            Margins.Left = 8.000000000000000000
-            Margins.Top = 8.000000000000000000
-            Margins.Right = 8.000000000000000000
-            Position.X = 8.000000000000000000
-            Position.Y = 148.000000000000000000
-            Size.Width = 424.000000000000000000
-            Size.Height = 112.000000000000000000
-            Size.PlatformDefault = False
-            Text = 'Startup action'
-            TabOrder = 1
-            object StartupNoneRadio: TRadioButton
-              GroupName = 'Startup'
-              Position.X = 16.000000000000000000
-              Position.Y = 28.000000000000000000
-              Size.Width = 384.000000000000000000
-              Size.Height = 19.000000000000000000
-              Size.PlatformDefault = False
-              TabOrder = 0
-              Text = 'None (don'#39't load a model)'
-            end
-            object StartupDefaultRadio: TRadioButton
-              GroupName = 'Startup'
-              Position.X = 16.000000000000000000
-              Position.Y = 54.000000000000000000
-              Size.Width = 384.000000000000000000
-              Size.Height = 19.000000000000000000
-              Size.PlatformDefault = False
-              TabOrder = 1
-              Text = 'Load default model'
-            end
-            object StartupLastRadio: TRadioButton
-              GroupName = 'Startup'
-              Position.X = 16.000000000000000000
-              Position.Y = 80.000000000000000000
-              Size.Width = 384.000000000000000000
-              Size.Height = 19.000000000000000000
-              Size.PlatformDefault = False
-              TabOrder = 2
-              Text = 'Load last model'
-            end
-          end
           object ThemeGroup: TGroupBox
             Align = Top
             Margins.Left = 8.000000000000000000

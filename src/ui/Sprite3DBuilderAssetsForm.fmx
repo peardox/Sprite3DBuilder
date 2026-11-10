@@ -1,0 +1,108 @@
+object AssetsForm: TAssetsForm
+  Left = 0
+  Top = 0
+  Caption = 'Assets'
+  ClientHeight = 720
+  ClientWidth = 600
+  Position = Default
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  OnCreate = FormCreate
+  OnClose = FormClose
+  OnDestroy = FormDestroy
+  DesignerMasterStyle = 0
+  object TopLayout: TLayout
+    Align = Top
+    Padding.Left = 8.000000000000000000
+    Padding.Top = 8.000000000000000000
+    Padding.Right = 8.000000000000000000
+    Padding.Bottom = 8.000000000000000000
+    Size.Width = 600.000000000000000000
+    Size.Height = 272.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 0
+    object PreviewArea: TRectangle
+      Align = Left
+      Fill.Color = xFF303030
+      HitTest = False
+      Position.X = 8.000000000000000000
+      Position.Y = 8.000000000000000000
+      Size.Width = 256.000000000000000000
+      Size.Height = 256.000000000000000000
+      Size.PlatformDefault = False
+      Stroke.Kind = None
+    end
+    object InfoLayout: TLayout
+      Align = Client
+      Margins.Left = 12.000000000000000000
+      Size.Width = 312.000000000000000000
+      Size.Height = 256.000000000000000000
+      Size.PlatformDefault = False
+      TabOrder = 1
+      object StatusLabel: TLabel
+        Align = Top
+        Position.Y = 0.000000000000000000
+        Size.Width = 312.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
+        TextSettings.WordWrap = False
+        Text = 'No asset folder open'
+        TabOrder = 0
+      end
+      object Progress: TProgressBar
+        Align = Top
+        Orientation = Horizontal
+        Margins.Top = 4.000000000000000000
+        Position.Y = 26.000000000000000000
+        Size.Width = 312.000000000000000000
+        Size.Height = 12.000000000000000000
+        Size.PlatformDefault = False
+        Max = 100.000000000000000000
+      end
+      object NameLabel: TLabel
+        Align = Top
+        Margins.Top = 16.000000000000000000
+        Position.Y = 54.000000000000000000
+        Size.Width = 312.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
+        TextSettings.WordWrap = False
+        Text = ''
+        TabOrder = 2
+      end
+      object SizeLabel: TLabel
+        Align = Top
+        Position.Y = 76.000000000000000000
+        Size.Width = 312.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
+        TextSettings.WordWrap = False
+        Text = ''
+        TabOrder = 3
+      end
+      object FileLabel: TLabel
+        Align = Top
+        Position.Y = 98.000000000000000000
+        Size.Width = 312.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        ShowHint = True
+        TextSettings.VertAlign = Leading
+        TextSettings.WordWrap = True
+        Text = ''
+        TabOrder = 4
+      end
+    end
+  end
+  object TilesBox: TVertScrollBox
+    Align = Client
+    Size.Width = 600.000000000000000000
+    Size.Height = 448.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 1
+    OnResize = TilesBoxResize
+    Viewport.Width = 600.000000000000000000
+    Viewport.Height = 448.000000000000000000
+  end
+end
