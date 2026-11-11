@@ -1,22 +1,24 @@
 //** @abstract(The Library: the user's collections of models, each shown as thumbnails in
 //** groups, with a 3D preview of the one selected.)
 //**
-//** File, Library calls ShowLibrary. The library (LoadLibrary) lists collections, each a set of
-//** models from one or more folders with its own palette of groups; CollectionBar chooses the
-//** one shown, adds a new one (folders, then a name), adds many at once, rescans it, and
-//** renames or deletes it. A collection opens from what was saved (OpenCollection); its folders
-//** are read only when it has never been, or on Rescan (ScanCollection), which
-//** finds every model in them (AssetModelFiles). Their keys, the SHA-256 of each model's content
-//** (TSprite3DAssetHasher, from Sprite3DAssetCache), are worked out on a worker thread, as that
-//** is only reading files. A model whose key the thumbnail cache knows, with a thumbnail of
-//** THUMBNAIL_SIZE, is shown from the cache at once; every other one is queued, and its
-//** thumbnail made, one model at a time: loaded into the form's own viewport, turned upright,
-//** framed in a fixed isometric view in orthographic projection as Sprite3D frames a model, left
-//** on screen for THUMBNAIL_SETTLE_MS so the viewport has drawn it, and grabbed off screen by a
-//** TSprite3DOffscreen at THUMBNAIL_SIZE square, with a transparent background. The PNG and the
-//** model's metadata, its bounding box among it, go into the cache, so the next time the folder
-//** is opened nothing need be made. Two files with the same key are one model: the second is
-//** noted in the log and not shown again.
+//** File, Library calls ShowLibrary. The library (LoadLibrary) lists artists, and under each
+//** their collections (ArtistBar: the artist shown, Add Artist, Add Artist Collections, and
+//** rename or delete; a collection with no artist goes under UNASSIGNED_ARTIST, and can be moved
+//** to another from its menu). Each collection is a set of models from one or more folders with
+//** its own palette of groups; CollectionBar chooses the one shown, adds a new one (folders,
+//** then a name), adds many at once, rescans it, and renames or deletes it. A collection opens
+//** from what was saved (OpenCollection); its folders are read only when it has never been, or
+//** on Rescan (ScanCollection), which finds every model in them (AssetModelFiles). Their keys,
+//** the SHA-256 of each model's content (TSprite3DAssetHasher, from Sprite3DAssetCache), are
+//** worked out on a worker thread, as that is only reading files. A model whose key the
+//** thumbnail cache knows, with a thumbnail of THUMBNAIL_SIZE, is shown from the cache at once;
+//** every other one is queued, and its thumbnail made, one model at a time: loaded into the
+//** form's own viewport, turned upright, framed in a fixed isometric view in orthographic
+//** projection as Sprite3D frames a model, left on screen for THUMBNAIL_SETTLE_MS so the
+//** viewport has drawn it, and grabbed off screen by a TSprite3DOffscreen at THUMBNAIL_SIZE
+//** square, with a transparent background. The PNG and the model's metadata, its bounding box
+//** among it, go into the cache, so the next time the folder is opened nothing need be made. Two
+//** files with the same key are one model: the second is noted in the log and not shown again.
 //**
 //** The groups are down the left, in GroupsBox, one button each: its icon above its name and
 //** how many models it has. Clicking one, or Up and Down, chooses it, and its thumbnails fill
@@ -61,8 +63,10 @@
 //**
 //** @preformatted(
 //** TAssetsForm
+//** |-- ArtistBar         ArtistLabel, ArtistCombo, ArtistMenuButton, NewArtistButton,
+//** |                     AddArtistButton
 //** |-- CollectionBar     CollectionLabel, CollectionCombo, CollectionMenuButton,
-//** |                     RescanButton, AddArtistButton, AddCollectionButton
+//** |                     RescanButton, AddCollectionButton
 //** |-- GroupsBox         TVertScrollBox, left: a button per group, made in code
 //** |-- GroupsSplitter
 //** |-- TopLayout
@@ -75,7 +79,9 @@
 //** |                         the chosen group's shown
 //** |-- GroupMenu         TPopupMenu: AddGroupItem, RenameGroupItem, IconGroupItem,
 //** |                     DeleteGroupItem
-//** |-- CollectionMenu    TPopupMenu: RenameCollectionItem, DeleteCollectionItem
+//** |-- CollectionMenu    TPopupMenu: RenameCollectionItem, MoveCollectionItem,
+//** |                     DeleteCollectionItem
+//** |-- ArtistMenu        TPopupMenu: RenameArtistItem, DeleteArtistItem
 //** `-- IconDialog        TOpenDialog, for Change Icon
 //** )
 unit Sprite3DBuilderAssetsForm;
@@ -149,7 +155,7 @@ uses
   FMX.Types, FMX.Controls, FMX.Forms, FMX.Graphics, FMX.StdCtrls, FMX.Layouts,
   FMX.Objects, FMX.Controls.Presentation, FMX.Types3D, FMX.Menus, FMX.Dialogs, FMX.ListBox,
   Gorilla.Viewport, Gorilla.Model, Gorilla.Camera, Spritely.OrbitalCamera,
-  Sprite3DOffscreen, Sprite3DAssetCache;
+  Sprite3DOffscreen, Sprite3DAssetCache, Sprite3DBackground, Sprite3DGrid;
 
 type
   //** @abstract(Receives a line for the log; see TAssetsForm.OnLog.)
@@ -211,10 +217,30 @@ type
     //** @abstract(Add New Asset Collection: the name of the collection of FNewSources.)
     gnNewCollection,
     //** @abstract(Rename Collection: the open collection's new name.)
-    gnRenameCollection);
+    gnRenameCollection,
+    //** @abstract(Add Artist: a new artist's name.)
+    gnNewArtist,
+    //** @abstract(Rename Artist: the artist shown's new name.)
+    gnRenameArtist);
 
   //** @abstract(The Assets form; see the unit's description.)
   TAssetsForm = class(TForm)
+    //** @abstract(Along the very top: the artist shown, and what can be done to artists.)
+    ArtistBar: TLayout;
+    //** @abstract(Says "Artist".)
+    ArtistLabel: TLabel;
+    //** @abstract(The library's artists; choosing one shows their collections.)
+    ArtistCombo: TComboBox;
+    //** @abstract(Opens ArtistMenu.)
+    ArtistMenuButton: TButton;
+    //** @abstract(Rename and Delete for the artist shown.)
+    ArtistMenu: TPopupMenu;
+    //** @abstract(Rename Artist...)
+    RenameArtistItem: TMenuItem;
+    //** @abstract(Delete Artist: the artist and their collections, from the library.)
+    DeleteArtistItem: TMenuItem;
+    //** @abstract(Add Artist...: a new artist, by name.)
+    NewArtistButton: TButton;
     //** @abstract(Along the top: the collection open, and what can be done to the library.)
     CollectionBar: TLayout;
     //** @abstract(Says "Collection".)
@@ -237,6 +263,9 @@ type
     RenameCollectionItem: TMenuItem;
     //** @abstract(Delete Collection: from the library; its models and thumbnails stay.)
     DeleteCollectionItem: TMenuItem;
+    //** @abstract(Move to Artist: a sub-menu of the other artists, made as CollectionMenu
+    //** opens; choosing one puts the collection under them.)
+    MoveCollectionItem: TMenuItem;
     //** @abstract(The groups, down the left: a button per group, made by BuildGroups.)
     GroupsBox: TVertScrollBox;
     //** @abstract(Between GroupsBox and the rest, to widen the groups.)
@@ -282,6 +311,8 @@ type
     //** @abstract(Change Icon...: an icon from the library, or any PNG or SVG, for the group
     //** clicked.)
     IconGroupItem: TMenuItem;
+    //** @abstract(The line above Delete Group.)
+    GroupMenuSeparator: TMenuItem;
     //** @abstract(Delete Group: only for a group with no models anywhere.)
     DeleteGroupItem: TMenuItem;
     //** @abstract(Chooses a group's icon.)
@@ -369,6 +400,27 @@ type
     //**
     //** @param(Sender CollectionCombo.)
     procedure CollectionComboChange(Sender: TObject);
+    //** @abstract(Shows the artist chosen: the collection of theirs open last, or their
+    //** first.)
+    //**
+    //** @param(Sender ArtistCombo.)
+    procedure ArtistComboChange(Sender: TObject);
+    //** @abstract(Asks a new artist's name.)
+    //**
+    //** @param(Sender NewArtistButton.)
+    procedure NewArtistButtonClick(Sender: TObject);
+    //** @abstract(Opens ArtistMenu under the button.)
+    //**
+    //** @param(Sender ArtistMenuButton.)
+    procedure ArtistMenuButtonClick(Sender: TObject);
+    //** @abstract(Asks the artist's new name.)
+    //**
+    //** @param(Sender RenameArtistItem.)
+    procedure RenameArtistItemClick(Sender: TObject);
+    //** @abstract(Asks, then takes the artist and their collections out of the library.)
+    //**
+    //** @param(Sender DeleteArtistItem.)
+    procedure DeleteArtistItemClick(Sender: TObject);
     //** @abstract(Chooses folders for a new collection, then asks its name.)
     //**
     //** @param(Sender AddCollectionButton.)
@@ -376,12 +428,18 @@ type
     //** @abstract(Makes a collection of each folder directly inside the folders chosen, such
     //** as each pack in an artist's folder, named after it, in one go.)
     //**
+    //** They go under the artist shown (BulkArtist). With none shown, or Unassigned, each
+    //** folder chosen is the artist, named after it, so a product line folder (such as one
+    //** artist's packs under a brand name) still lands under the artist chosen first.
+    //**
     //** Each is searched for models (FindModelFolders). The first time, the user is asked
     //** which format to take (AskFormat), and that becomes the default; a folder with that
     //** format gets it, the engine copies left out (DefaultModelFolders), without asking. A
     //** folder with none of the defaults so far asks again: Import adds the format chosen as
-    //** the next default, Skip passes it over, Only My Defaults passes over it and every later
-    //** one like it, Stop ends there. A folder with no models, or the name of a collection
+    //** the next default, Skip passes it over and rejects the formats it offered, which are
+    //** not offered again, so a later folder with only rejected formats is passed over
+    //** without asking, Only My Defaults
+    //** passes over it and every later one like it, Stop ends there. A folder with no models, or the name of a collection
     //** already in the library, is passed over. Then each is imported in full, one after
     //** another (NextBulk): its folders read and its thumbnails made, the status saying which
     //** of how many. The first made is opened, and a summary shown, at the end. Choosing
@@ -398,6 +456,11 @@ type
     //**
     //** @param(Sender CollectionMenuButton.)
     procedure CollectionMenuButtonClick(Sender: TObject);
+    //** @abstract(Puts the collection open under the artist chosen from the Move to Artist
+    //** sub-menu, and shows that artist.)
+    //**
+    //** @param(Sender The sub-menu's item; its Tag is the artist's index in FLibrary.Artists.)
+    procedure MoveToArtistClick(Sender: TObject);
     //** @abstract(Asks the collection's new name.)
     //**
     //** @param(Sender RenameCollectionItem.)
@@ -417,6 +480,11 @@ type
     FOffscreen: TSprite3DOffscreen;
     //** @abstract(Starts each grab THUMBNAIL_SETTLE_MS after its model is loaded.)
     FSettleTimer: TTimer;
+    //** @abstract(Starts a grab again that has not come back in GRAB_TIMEOUT_MS, and gives
+    //** up after GRAB_TRIES, so one model that never draws does not stop the rest.)
+    FGrabTimer: TTimer;
+    //** @abstract(How many times the grab of the thumbnail being made has been started.)
+    FGrabTries: Integer;
     //** @abstract(Runs MakeNext on a later main-loop turn; see MakeNextLater. Owned by the
     //** form, so it never fires once the form has gone.)
     FNextTimer: TTimer;
@@ -443,6 +511,14 @@ type
     FScanning: Boolean;
     //** @abstract(The collection open; its Id is empty for none.)
     FCollection: TSprite3DAssetCollection;
+    //** @abstract(The id of the artist shown; empty for none.)
+    FArtistId: String;
+    //** @abstract(The collections in CollectionCombo, the artist's, as indices into
+    //** FLibrary.Collections.)
+    FShownCollections: TArray<Integer>;
+    //** @abstract(True while FillCollections fills ArtistCombo, so its change is not a
+    //** choice.)
+    FFillingArtists: Boolean;
     //** @abstract(The folders and formats chosen for a new collection, while its name is
     //** asked.)
     FNewSources: TArray<TSprite3DCollectionSource>;
@@ -469,6 +545,19 @@ type
     FFolderTiles: TArray<TRectangle>;
     //** @abstract(Says "Model Preview" over the viewport while it shows no model.)
     FPreviewLabel: TLabel;
+    //** @abstract(Behind the viewport: a checker, standing for transparency. Never in a
+    //** thumbnail: the off-screen pass draws into a buffer of its own.)
+    FBackground: TSprite3DBackground;
+    //** @abstract(The floor grid under the model previewed, at the level's grid spacing and
+    //** the model's own floor, Y = 0, so a model raised from it, or sunk into it, shows; a
+    //** child of FModel, freed with it, and never there while a thumbnail is made.)
+    FPreviewGrid: TModelGrid;
+    //** @abstract(The model files passed over when thumbnails are made or a model previewed:
+    //** those in the viewport when the program last stopped without closing, so likely to
+    //** hang it; read from and kept in SkipFile. Sorted, case ignored.)
+    FSkipped: TStringList;
+    //** @abstract(Backing field for GridSize.)
+    FGridSize: Single;
     //** @abstract(The icons loaded, by full path, so each is read once; the form's.)
     FIconBitmaps: TObjectDictionary<String, TBitmap>;
     //** @abstract(Counts the folders opened, so results for an earlier one are dropped.)
@@ -595,9 +684,11 @@ type
     //**
     //** @param(ASources Its folders and formats.)
     //**
+    //** @param(AArtistId The artist it is under.)
+    //**
     //** @returns(Its id; empty if it could not be saved.)
     function NewCollection(const AName: String;
-      const ASources: TArray<TSprite3DCollectionSource>): String;
+      const ASources: TArray<TSprite3DCollectionSource>; const AArtistId: String): String;
     //** @abstract(Imports the artist import's next collection in full, opening it, which
     //** reads its folders and makes its thumbnails; when there are none left, opens the
     //** first and shows the summary.)
@@ -612,12 +703,56 @@ type
     //**
     //** @param(AWhy Why, for the log.)
     procedure StopBulk(const AWhy: String);
-    //** @abstract(Whether the library has a collection called AName, case ignored.)
+    //** @abstract(Whether artist AArtistId has a collection called AName, case ignored.)
     //**
     //** @param(AName The name.)
     //**
-    //** @returns(True if it has.)
-    function HasCollection(const AName: String): Boolean;
+    //** @param(AArtistId The artist.)
+    //**
+    //** @returns(True if they have.)
+    function HasCollection(const AName, AArtistId: String): Boolean;
+    //** @abstract(Where artist AId is in FLibrary.Artists.)
+    //**
+    //** @param(AId The artist's id.)
+    //**
+    //** @returns(The index, or -1.)
+    function ArtistIndex(const AId: String): Integer;
+    //** @abstract(The artist an artist import puts its collections under.)
+    //**
+    //** @returns(The id of the artist shown, or an empty string when there is none or it is
+    //** Unassigned, when each folder chosen names its own artist.)
+    function BulkArtist: String;
+    //** @abstract(The artist called AName, case ignored, made if there is none; the library
+    //** is saved if one is made.)
+    //**
+    //** @param(AName The name.)
+    //**
+    //** @returns(Their id.)
+    function EnsureArtist(const AName: String): String;
+    //** @abstract(Puts every collection with no artist, or one that is not there, under
+    //** UNASSIGNED_ARTIST, as the collections of before artists are.)
+    procedure AssignOrphans;
+    //** @abstract(The collection to open for artist AArtistId: the one open last if it is
+    //** theirs, or their first.)
+    //**
+    //** @param(AArtistId The artist.)
+    //**
+    //** @returns(The collection's id; empty if they have none.)
+    function ArtistCollection(const AArtistId: String): String;
+    //** @abstract(Makes the artist called AName, or renames the one shown, as AAsk says; a
+    //** name another artist has is refused.)
+    //**
+    //** @param(AAsk gnNewArtist or gnRenameArtist.)
+    //**
+    //** @param(AName The name, trimmed; empty does nothing.)
+    procedure ArtistNamed(const AAsk: TGroupNameAsk; const AName: String);
+    //** @abstract(Deletes the artist shown and their collections, if the user said Yes; the
+    //** delete dialog's answer.)
+    //**
+    //** @param(Sender The dialog's context; not used.)
+    //**
+    //** @param(AResult How the dialog was closed.)
+    procedure DeleteArtistClosed(Sender: TObject; const AResult: TModalResult);
     //** @abstract(The open collection's sources, for the log: each folder, with its formats.)
     //**
     //** @returns(The text.)
@@ -640,10 +775,42 @@ type
     //**
     //** @param(AResult How the dialog was closed.)
     procedure DeleteCollectionClosed(Sender: TObject; const AResult: TModalResult);
-    //** @abstract(Hands AText to OnLog, if it is set.)
+    //** @abstract(Hands AText to OnLog, if it is set, and writes it to the import log.)
     //**
     //** @param(AText The line.)
     procedure Log(const AText: String);
+    //** @abstract(Adds AText, after the time, to the import log, ImportLogFile.)
+    //**
+    //** The file is opened, written and closed for each line, so whatever was written before
+    //** a hang or a crash is there to read. A failure to write is ignored.
+    //**
+    //** @param(AText The line.)
+    procedure DebugLog(const AText: String);
+    //** @abstract(The import log: what the Library did, with each model's load and grab
+    //** timed, in the settings folder; begun again by each artist import.)
+    //**
+    //** @returns(The file's path.)
+    function ImportLogFile: String;
+    //** @abstract(The file that names the model in the viewport, while there is one, so
+    //** one left there by a program that never closed names the model it hung or crashed
+    //** on.)
+    //**
+    //** @returns(The file's path.)
+    function LoadingFile: String;
+    //** @abstract(The list of model files passed over, one to a line; delete a line, or the
+    //** file, to try one again.)
+    //**
+    //** @returns(The file's path.)
+    function SkipFile: String;
+    //** @abstract(Reads SkipFile into FSkipped, then adds the model LoadingFile names, if it
+    //** is there: the program stopped with that model in the viewport.)
+    procedure LoadSkipped;
+    //** @abstract(Whether model file AFile is passed over.)
+    //**
+    //** @param(AFile The model file.)
+    //**
+    //** @returns(True if FSkipped has it.)
+    function IsSkipped(const AFile: String): Boolean;
     //** @abstract(True while thumbnails are queued or one is being made.)
     //**
     //** @returns(Whether the viewport is busy with thumbnails.)
@@ -818,6 +985,28 @@ type
     //** Each group's models are this folder's in name order, then those of other folders in
     //** key order.
     procedure SavePalette;
+    //** @abstract(A count with its word, such as 1 model or 1,234 models.)
+    //**
+    //** @param(ACount The count.)
+    //**
+    //** @param(AWord The word for one, given an s for any other count.)
+    //**
+    //** @returns(The text.)
+    function CountText(const ACount: Integer; const AWord: String): String;
+    //** @abstract(An artist as the artist list shows them: their name, then how many
+    //** collections they have and how many models in them all.)
+    //**
+    //** @param(AArtist The artist.)
+    //**
+    //** @returns(The text.)
+    function ArtistText(const AArtist: TSprite3DArtist): String;
+    //** @abstract(A collection as the collection list shows it: its name, then how many
+    //** models it has, or that it is not imported yet.)
+    //**
+    //** @param(AEntry The collection.)
+    //**
+    //** @returns(The text.)
+    function CollectionText(const AEntry: TSprite3DLibraryEntry): String;
     //** @abstract(Shows group AGroup's tiles; the picks are dropped.)
     //**
     //** @param(AGroup The group; empty for none.)
@@ -995,6 +1184,12 @@ type
     //**
     //** @param(Sender FSettleTimer.)
     procedure SettleTimerTimer(Sender: TObject);
+    //** @abstract(Logs how the grab under way stands, then starts it again, or after
+    //** GRAB_TRIES gives up: passes over the model, without a thumbnail, and goes on with the
+    //** next. While the form is minimised, when nothing is drawn, it waits on instead.)
+    //**
+    //** @param(Sender FGrabTimer.)
+    procedure GrabTimerTimer(Sender: TObject);
     //** @abstract(The procedure the off-screen pass calls with entry AIndex's thumbnail.)
     //**
     //** Made here, so the entry and folder are passed by value, not captured as variables.
@@ -1101,13 +1296,12 @@ type
   public
     //** @abstract(Shows the Library, opening the collection open last, if there is one.)
     procedure ShowLibrary;
-    //** @abstract(Deletes every cached thumbnail and its metadata, then, if the form is
-    //** showing a collection, opens it again, so every thumbnail is made afresh.)
+    //** @abstract(Deletes the whole library, every collection and thumbnail
+    //** (ClearAssetLibrary), and shows it empty.)
     //**
-    //** The thumbnail being made is dropped first. Uses ClearAssetCache on the cache folder,
-    //** TSprite3DAppSettings.ThumbnailFolder, and reports what it did through OnLog. The
-    //** palette is kept.
-    procedure ClearThumbnails;
+    //** Everything under way is stopped first: a thumbnail being made, the hashing, an
+    //** artist import. What was done goes to OnLog. The model files are never touched.
+    procedure ClearLibrary;
     //** @abstract(Every model shown, in name order.)
     property Entries: TArray<TAssetEntry> read FEntries;
     //** @abstract(The entry selected, or -1.)
@@ -1117,6 +1311,9 @@ type
     //** @abstract(The folder of the one palette of before the library, palette.json, for the
     //** collection LoadLibrary makes of it; set before ShowLibrary.)
     property MigrationFolder: String read FMigrationFolder write FMigrationFolder;
+    //** @abstract(The level's grid spacing, for the preview's floor grid; 2 to start with.
+    //** Set before ShowLibrary.)
+    property GridSize: Single read FGridSize write FGridSize;
   end;
 
 
@@ -1132,10 +1329,10 @@ uses
 
 const
   //** @abstract(A tile's width and height, and the thumbnail's size on it, in logical
-  //** pixels.)
-  TILE_WIDTH = 104;
-  TILE_HEIGHT = 124;
-  TILE_IMAGE = 96;
+  //** pixels: the thumbnail at its own size, with 4 round it and room for the name below.)
+  TILE_IMAGE = THUMBNAIL_SIZE;
+  TILE_WIDTH = TILE_IMAGE + 8;
+  TILE_HEIGHT = TILE_IMAGE + 28;
   //** @abstract(The room between tiles, and round the grid's edge.)
   TILE_GAP = 6;
   //** @abstract(How far, in logical pixels, the pointer moves with the left button down
@@ -1185,6 +1382,24 @@ const
   //** @abstract(How many thumbnails are made before the time left is shown, so the average
   //** it is worked out from is a fair one.)
   ETA_AFTER = 3;
+  //** @abstract(How long a thumbnail's grab may take, in milliseconds, before it is started
+  //** again; a grab takes well under a second.)
+  GRAB_TIMEOUT_MS = 4000;
+  //** @abstract(How many times a thumbnail's grab is started before the model is passed
+  //** over.)
+  GRAB_TRIES = 3;
+  //** @abstract(The import log's name, in the settings folder; see ImportLogFile.)
+  IMPORT_LOG_FILE_NAME = 'library-import.log';
+  //** @abstract(The name of the file naming the model in the viewport; see LoadingFile.)
+  LOADING_FILE_NAME = 'library-loading.txt';
+  //** @abstract(The name of the list of models passed over; see SkipFile.)
+  SKIP_FILE_NAME = 'library-skipped.txt';
+  //** @abstract(The artist the collections of before artists are put under, to be renamed.)
+  UNASSIGNED_ARTIST = 'Unassigned';
+  //** @abstract(The side of the preview's checker squares, in logical pixels.)
+  PREVIEW_CHECKER_SIZE = 16;
+  //** @abstract(The preview's floor grid lines.)
+  PREVIEW_GRID_COLOUR = TAlphaColor($C0202020);
   //** @abstract(The fill of a group's tile in the grid, so it stands apart from models.)
   FOLDER_FILL = TAlphaColor($28FFFFFF);
 
@@ -1234,6 +1449,8 @@ end;
 { TAssetsForm }
 
 procedure TAssetsForm.FormCreate(Sender: TObject);
+var
+  Spec: TSprite3DBackgroundSpec;
 begin
   FAlive := TAssetsAlive.Create;
   FMaking := -1;
@@ -1243,6 +1460,10 @@ begin
   FTileDown := -1;
   FDropIndex := -1;
   FCacheFolder := TSprite3DAppSettings.ThumbnailFolder;
+  FSkipped := TStringList.Create;
+  FSkipped.Sorted := True;
+  FSkipped.CaseSensitive := False;
+  FSkipped.Duplicates := TDuplicates.dupIgnore;
   FPaletteGroups := TDictionary<String, String>.Create;
   FGroupIcons := TDictionary<String, String>.Create;
   FIconBitmaps := TObjectDictionary<String, TBitmap>.Create([doOwnsValues]);
@@ -1271,6 +1492,17 @@ begin
   FPreviewLabel.HitTest := False;
   FPreviewLabel.BringToFront;
 
+  // A checker behind the view, as Sprite3D's transparent background, in
+  // squares to suit the small view
+  FBackground := TSprite3DBackground.Create(nil);
+  FBackground.AttachTo(FViewport);
+  Spec := TSprite3DBackgroundSpec.Default;
+  Spec.Kind := TSprite3DBackgroundKind.Transparent;
+  Spec.CheckerSize := PREVIEW_CHECKER_SIZE;
+  FBackground.Spec := Spec;
+  FPreviewLabel.BringToFront;
+  FGridSize := 2;
+
   // The Spritely camera, as the main form's: orthographic, lit from the
   // camera, in the thumbnails' view to start with
   FCamera := TSpritelyOrbitalCamera.Create(Self);
@@ -1291,6 +1523,11 @@ begin
   FSettleTimer.Enabled := False;
   FSettleTimer.Interval := THUMBNAIL_SETTLE_MS;
   FSettleTimer.OnTimer := SettleTimerTimer;
+
+  FGrabTimer := TTimer.Create(Self);
+  FGrabTimer.Enabled := False;
+  FGrabTimer.Interval := GRAB_TIMEOUT_MS;
+  FGrabTimer.OnTimer := GrabTimerTimer;
 
   FNextTimer := TTimer.Create(Self);
   FNextTimer.Enabled := False;
@@ -1353,6 +1590,8 @@ begin
   FAlive.Kill;
   if FSettleTimer <> nil then
     FSettleTimer.Enabled := False;
+  if FGrabTimer <> nil then
+    FGrabTimer.Enabled := False;
   if FNextTimer <> nil then
     FNextTimer.Enabled := False;
   if FDeferTimer <> nil then
@@ -1366,6 +1605,7 @@ begin
   FreeAndNil(FGroupIcons);
   FreeAndNil(FIconBitmaps);
   FreeAndNil(FGroupParents);
+  FreeAndNil(FSkipped);
 end;
 
 procedure TAssetsForm.FormKeyDown(Sender: TObject; var Key: Word; var KeyChar: WideChar;
@@ -1407,22 +1647,24 @@ end;
 
 procedure TAssetsForm.ShowLibrary;
 begin
+  LoadSkipped;
   LoadLibrary;
   Show;
   BringToFront;
   if FCollection.Id <> String.Empty then
     Exit;   // open already
-  if FLibrary.Last <> String.Empty then
-    for var Entry in FLibrary.Collections do
-      if SameText(Entry.Id, FLibrary.Last) then
-      begin
-        OpenCollection(Entry.Id);
-        Exit;
-      end;
-  if Length(FLibrary.Collections) > 0 then
-    OpenCollection(FLibrary.Collections[0].Id)
-  else
-    OpenCollection(String.Empty);
+  // The collection open last, with its artist; else the artist shown last
+  for var Entry in FLibrary.Collections do
+    if SameText(Entry.Id, FLibrary.Last) then
+    begin
+      OpenCollection(Entry.Id);
+      Exit;
+    end;
+  if ArtistIndex(FLibrary.LastArtist) >= 0 then
+    FArtistId := FLibrary.LastArtist
+  else if Length(FLibrary.Artists) > 0 then
+    FArtistId := FLibrary.Artists[0].Id;
+  OpenCollection(ArtistCollection(FArtistId));
 end;
 
 procedure TAssetsForm.LoadLibrary;
@@ -1436,7 +1678,11 @@ begin
     Exit;
   FLibraryLoaded := True;
   if LoadAssetLibrary(FCacheFolder, FLibrary) then
+  begin
+    // Collections of before artists: under one, to be renamed
+    AssignOrphans;
     Exit;
+  end;
   // No library yet. The one palette of before it, if there is one, becomes
   // its first collection, to be scanned from the folder it was made from
   OldFile := TPath.Combine(FCacheFolder, ASSET_PALETTE_FILE_NAME);
@@ -1453,6 +1699,7 @@ begin
   end;
   Moved.Groups := Palette;
   Moved.Scanned := False;
+  Moved.ArtistId := EnsureArtist(UNASSIGNED_ARTIST);
   try
     SaveAssetCollection(FCacheFolder, Moved);
   except
@@ -1462,8 +1709,10 @@ begin
       Exit;
     end;
   end;
+  Entry := Default(TSprite3DLibraryEntry);
   Entry.Id := Moved.Id;
   Entry.Name := Moved.Name;
+  Entry.ArtistId := Moved.ArtistId;
   FLibrary.Collections := [Entry];
   FLibrary.Last := Moved.Id;
   FLibrary.LastFolder := FMigrationFolder;
@@ -1490,19 +1739,44 @@ end;
 
 procedure TAssetsForm.FillCollections;
 var
-  Chosen: Integer;
+  Chosen, ArtistAt: Integer;
 begin
+  // The artists first, the one shown chosen
+  ArtistAt := ArtistIndex(FArtistId);
+  FFillingArtists := True;
+  try
+    ArtistCombo.BeginUpdate;
+    try
+      ArtistCombo.Clear;
+      for var Artist in FLibrary.Artists do
+        ArtistCombo.Items.Add(ArtistText(Artist));
+      ArtistCombo.ItemIndex := ArtistAt;
+    finally
+      ArtistCombo.EndUpdate;
+    end;
+  finally
+    FFillingArtists := False;
+  end;
+  ArtistCombo.Enabled := Length(FLibrary.Artists) > 0;
+  ArtistMenuButton.Enabled := ArtistAt >= 0;
+  AddCollectionButton.Enabled := ArtistAt >= 0;
+
+  // Then that artist's collections
   FFillingCollections := True;
   try
     CollectionCombo.BeginUpdate;
     try
       CollectionCombo.Clear;
+      FShownCollections := nil;
       Chosen := -1;
       for var I := 0 to High(FLibrary.Collections) do
       begin
-        CollectionCombo.Items.Add(FLibrary.Collections[I].Name);
+        if not SameText(FLibrary.Collections[I].ArtistId, FArtistId) then
+          Continue;
+        CollectionCombo.Items.Add(CollectionText(FLibrary.Collections[I]));
+        FShownCollections := FShownCollections + [I];
         if SameText(FLibrary.Collections[I].Id, FCollection.Id) then
-          Chosen := I;
+          Chosen := High(FShownCollections);
       end;
       CollectionCombo.ItemIndex := Chosen;
     finally
@@ -1511,11 +1785,13 @@ begin
   finally
     FFillingCollections := False;
   end;
-  CollectionCombo.Enabled := Length(FLibrary.Collections) > 0;
+  CollectionCombo.Enabled := Length(FShownCollections) > 0;
   RescanButton.Enabled := FCollection.Id <> String.Empty;
   CollectionMenuButton.Enabled := FCollection.Id <> String.Empty;
-  if FCollection.Id <> String.Empty then
-    Caption := 'Library - ' + FCollection.Name
+  if (FCollection.Id <> String.Empty) and (ArtistAt >= 0) then
+    Caption := 'Library - ' + FLibrary.Artists[ArtistAt].Name + ' / ' + FCollection.Name
+  else if ArtistAt >= 0 then
+    Caption := 'Library - ' + FLibrary.Artists[ArtistAt].Name
   else
     Caption := 'Library';
 end;
@@ -1543,19 +1819,27 @@ begin
     FGroupIcons.Clear;
     BuildGroups;
     FillCollections;
-    if Length(FLibrary.Collections) = 0 then
-      StatusLabel.Text := 'No collections yet: Add New Asset Collection... to start'
+    if Length(FLibrary.Artists) = 0 then
+      StatusLabel.Text := 'No artists yet: Add Artist..., or Add Artist Collections..., ' +
+        'to start'
+    else if Length(FShownCollections) = 0 then
+      StatusLabel.Text := 'No collections for this artist yet: Add New Asset Collection...'
     else
       StatusLabel.Text := 'No collection open';
     Progress.Value := 0;
     Progress.Visible := False;
     Exit;
   end;
-  // The library's name for it stands
+  // The library's name and artist for it stand
   for var Entry in FLibrary.Collections do
     if SameText(Entry.Id, AId) then
+    begin
       Opened.Name := Entry.Name;
+      Opened.ArtistId := Entry.ArtistId;
+    end;
   FCollection := Opened;
+  FArtistId := FCollection.ArtistId;
+  FLibrary.LastArtist := FArtistId;
   FLibrary.Last := FCollection.Id;
   SaveLibrary;
   FillCollections;
@@ -1632,14 +1916,17 @@ begin
 end;
 
 procedure TAssetsForm.CollectionComboChange(Sender: TObject);
+var
+  Index: Integer;
 begin
   if FFillingCollections or (CollectionCombo.ItemIndex < 0) or
-    (CollectionCombo.ItemIndex > High(FLibrary.Collections)) then
+    (CollectionCombo.ItemIndex > High(FShownCollections)) then
     Exit;
-  if not SameText(FLibrary.Collections[CollectionCombo.ItemIndex].Id, FCollection.Id) then
+  Index := FShownCollections[CollectionCombo.ItemIndex];
+  if not SameText(FLibrary.Collections[Index].Id, FCollection.Id) then
   begin
     StopBulk('another collection chosen');
-    OpenCollection(FLibrary.Collections[CollectionCombo.ItemIndex].Id);
+    OpenCollection(FLibrary.Collections[Index].Id);
   end;
 end;
 
@@ -1648,6 +1935,11 @@ var
   Folders: TArray<String>;
   Suggested: String;
 begin
+  if ArtistIndex(FArtistId) < 0 then
+  begin
+    TDialogService.ShowMessage('Choose an artist for the collection first, or Add Artist...');
+    Exit;
+  end;
   if not SelectFolders('Add New Asset Collection', StartFolder, Folders) then
     Exit;
   FLibrary.LastFolder := Folders[0];
@@ -1673,12 +1965,53 @@ end;
 procedure TAssetsForm.CollectionMenuButtonClick(Sender: TObject);
 var
   At: TPointF;
+  Item: TMenuItem;
 begin
   if FCollection.Id = String.Empty then
     Exit;
+  // Move to Artist: every other artist, as they are now
+  MoveCollectionItem.DeleteChildren;
+  for var I := 0 to High(FLibrary.Artists) do
+  begin
+    if SameText(FLibrary.Artists[I].Id, FArtistId) then
+      Continue;
+    Item := TMenuItem.Create(MoveCollectionItem);
+    Item.Text := FLibrary.Artists[I].Name;
+    Item.Tag := I;
+    Item.OnClick := MoveToArtistClick;
+    MoveCollectionItem.AddObject(Item);
+  end;
+  MoveCollectionItem.Enabled := MoveCollectionItem.ItemsCount > 0;
   At := ClientToScreen(CollectionMenuButton.LocalToAbsolute(
     TPointF.Create(0, CollectionMenuButton.Height)));
   CollectionMenu.Popup(At.X, At.Y);
+end;
+
+procedure TAssetsForm.MoveToArtistClick(Sender: TObject);
+var
+  At: Integer;
+begin
+  if not (Sender is TMenuItem) or (FCollection.Id = String.Empty) then
+    Exit;
+  At := TMenuItem(Sender).Tag;
+  if (At < 0) or (At > High(FLibrary.Artists)) then
+    Exit;
+  if HasCollection(FCollection.Name, FLibrary.Artists[At].Id) then
+  begin
+    TDialogService.ShowMessage(FLibrary.Artists[At].Name + ' has a collection called ' +
+      FCollection.Name + ' already.');
+    Exit;
+  end;
+  Log('Assets: collection ' + FCollection.Name + ' moved to ' + FLibrary.Artists[At].Name);
+  FCollection.ArtistId := FLibrary.Artists[At].Id;
+  for var I := 0 to High(FLibrary.Collections) do
+    if SameText(FLibrary.Collections[I].Id, FCollection.Id) then
+      FLibrary.Collections[I].ArtistId := FCollection.ArtistId;
+  FArtistId := FCollection.ArtistId;
+  FLibrary.LastArtist := FArtistId;
+  SavePalette;
+  SaveLibrary;
+  FillCollections;
 end;
 
 procedure TAssetsForm.RenameCollectionItemClick(Sender: TObject);
@@ -1698,10 +2031,11 @@ begin
   if AName = String.Empty then
     Exit;
   for Entry in FLibrary.Collections do
-    if SameText(Entry.Name, AName) and
+    if SameText(Entry.Name, AName) and SameText(Entry.ArtistId, FArtistId) and
       ((AAsk = gnNewCollection) or not SameText(Entry.Id, FCollection.Id)) then
     begin
-      TDialogService.ShowMessage('There is a collection called ' + AName + ' already.');
+      TDialogService.ShowMessage('This artist has a collection called ' + AName +
+        ' already.');
       Exit;
     end;
   if AAsk = gnRenameCollection then
@@ -1719,14 +2053,14 @@ begin
     Exit;
   end;
   // A new one, with its folders, scanned as it opens
-  Id := NewCollection(AName, FNewSources);
+  Id := NewCollection(AName, FNewSources, FArtistId);
   FNewSources := nil;
   if Id <> String.Empty then
     OpenCollection(Id);
 end;
 
 function TAssetsForm.NewCollection(const AName: String;
-  const ASources: TArray<TSprite3DCollectionSource>): String;
+  const ASources: TArray<TSprite3DCollectionSource>; const AArtistId: String): String;
 var
   Made: TSprite3DAssetCollection;
   Entry: TSprite3DLibraryEntry;
@@ -1736,6 +2070,7 @@ begin
   Made.Id := NewCollectionId;
   Made.Name := AName;
   Made.Sources := ASources;
+  Made.ArtistId := AArtistId;
   try
     SaveAssetCollection(FCacheFolder, Made);
   except
@@ -1745,20 +2080,211 @@ begin
       Exit;
     end;
   end;
+  Entry := Default(TSprite3DLibraryEntry);
   Entry.Id := Made.Id;
   Entry.Name := Made.Name;
+  Entry.ArtistId := AArtistId;
   FLibrary.Collections := FLibrary.Collections + [Entry];
   SaveLibrary;
   Log('Assets: collection ' + AName + ' added');
   Result := Made.Id;
 end;
 
-function TAssetsForm.HasCollection(const AName: String): Boolean;
+function TAssetsForm.HasCollection(const AName, AArtistId: String): Boolean;
 begin
   for var Entry in FLibrary.Collections do
-    if SameText(Entry.Name, AName) then
+    if SameText(Entry.Name, AName) and SameText(Entry.ArtistId, AArtistId) then
       Exit(True);
   Result := False;
+end;
+
+function TAssetsForm.ArtistIndex(const AId: String): Integer;
+begin
+  for var I := 0 to High(FLibrary.Artists) do
+    if SameText(FLibrary.Artists[I].Id, AId) then
+      Exit(I);
+  Result := -1;
+end;
+
+function TAssetsForm.EnsureArtist(const AName: String): String;
+var
+  Artist: TSprite3DArtist;
+begin
+  for var Each in FLibrary.Artists do
+    if SameText(Each.Name, AName) then
+      Exit(Each.Id);
+  Artist.Id := NewCollectionId;
+  Artist.Name := AName;
+  FLibrary.Artists := FLibrary.Artists + [Artist];
+  SaveLibrary;
+  Log('Assets: artist ' + AName + ' added');
+  Result := Artist.Id;
+end;
+
+procedure TAssetsForm.AssignOrphans;
+var
+  Unassigned: String;
+  Changed: Boolean;
+begin
+  Changed := False;
+  for var I := 0 to High(FLibrary.Collections) do
+    if ArtistIndex(FLibrary.Collections[I].ArtistId) < 0 then
+    begin
+      Unassigned := EnsureArtist(UNASSIGNED_ARTIST);
+      FLibrary.Collections[I].ArtistId := Unassigned;
+      Changed := True;
+    end;
+  if Changed then
+  begin
+    SaveLibrary;
+    Log('Assets: collections with no artist put under ' + UNASSIGNED_ARTIST);
+  end;
+end;
+
+function TAssetsForm.ArtistCollection(const AArtistId: String): String;
+begin
+  Result := String.Empty;
+  for var Entry in FLibrary.Collections do
+    if SameText(Entry.ArtistId, AArtistId) then
+    begin
+      if SameText(Entry.Id, FLibrary.Last) then
+        Exit(Entry.Id);
+      if Result = String.Empty then
+        Result := Entry.Id;
+    end;
+end;
+
+procedure TAssetsForm.ArtistComboChange(Sender: TObject);
+begin
+  if FFillingArtists or (ArtistCombo.ItemIndex < 0) or
+    (ArtistCombo.ItemIndex > High(FLibrary.Artists)) then
+    Exit;
+  if SameText(FLibrary.Artists[ArtistCombo.ItemIndex].Id, FArtistId) then
+    Exit;
+  StopBulk('another artist chosen');
+  FArtistId := FLibrary.Artists[ArtistCombo.ItemIndex].Id;
+  FLibrary.LastArtist := FArtistId;
+  SaveLibrary;
+  OpenCollection(ArtistCollection(FArtistId));
+end;
+
+procedure TAssetsForm.NewArtistButtonClick(Sender: TObject);
+begin
+  FAskName := gnNewArtist;
+  TDialogService.InputQuery('Add Artist', ['Name of the artist'], [''], GroupNameClosed);
+end;
+
+procedure TAssetsForm.ArtistMenuButtonClick(Sender: TObject);
+var
+  At: TPointF;
+begin
+  if FArtistId = String.Empty then
+    Exit;
+  At := ClientToScreen(ArtistMenuButton.LocalToAbsolute(
+    TPointF.Create(0, ArtistMenuButton.Height)));
+  ArtistMenu.Popup(At.X, At.Y);
+end;
+
+procedure TAssetsForm.RenameArtistItemClick(Sender: TObject);
+begin
+  if ArtistIndex(FArtistId) < 0 then
+    Exit;
+  FAskName := gnRenameArtist;
+  TDialogService.InputQuery('Rename Artist', ['New name for the artist'],
+    [FLibrary.Artists[ArtistIndex(FArtistId)].Name], GroupNameClosed);
+end;
+
+procedure TAssetsForm.ArtistNamed(const AAsk: TGroupNameAsk; const AName: String);
+var
+  At: Integer;
+  Artist: TSprite3DArtist;
+begin
+  if AName = String.Empty then
+    Exit;
+  for var Each in FLibrary.Artists do
+    if SameText(Each.Name, AName) and
+      ((AAsk = gnNewArtist) or not SameText(Each.Id, FArtistId)) then
+    begin
+      TDialogService.ShowMessage('There is an artist called ' + AName + ' already.');
+      Exit;
+    end;
+  if AAsk = gnRenameArtist then
+  begin
+    At := ArtistIndex(FArtistId);
+    if At < 0 then
+      Exit;
+    Log('Assets: artist ' + FLibrary.Artists[At].Name + ' renamed ' + AName);
+    FLibrary.Artists[At].Name := AName;
+    SaveLibrary;
+    FillCollections;
+    Exit;
+  end;
+  // A new one, shown, with no collections yet
+  Artist.Id := NewCollectionId;
+  Artist.Name := AName;
+  FLibrary.Artists := FLibrary.Artists + [Artist];
+  StopBulk('an artist added');
+  FArtistId := Artist.Id;
+  FLibrary.LastArtist := FArtistId;
+  SaveLibrary;
+  Log('Assets: artist ' + AName + ' added');
+  OpenCollection(String.Empty);
+end;
+
+procedure TAssetsForm.DeleteArtistItemClick(Sender: TObject);
+var
+  At, Count: Integer;
+begin
+  At := ArtistIndex(FArtistId);
+  if At < 0 then
+    Exit;
+  Count := 0;
+  for var Entry in FLibrary.Collections do
+    if SameText(Entry.ArtistId, FArtistId) then
+      Inc(Count);
+  TDialogService.MessageDialog(Format('Delete the artist %s and their %d collections from ' +
+    'the library? Their groups go with them; the model files and thumbnails stay.',
+    [FLibrary.Artists[At].Name, Count]), TMsgDlgType.mtConfirmation,
+    [TMsgDlgBtn.mbYes, TMsgDlgBtn.mbNo], TMsgDlgBtn.mbNo, 0, DeleteArtistClosed);
+end;
+
+procedure TAssetsForm.DeleteArtistClosed(Sender: TObject; const AResult: TModalResult);
+var
+  At: Integer;
+begin
+  At := ArtistIndex(FArtistId);
+  if (AResult <> mrYes) or (At < 0) then
+    Exit;
+  StopBulk('the artist deleted');
+  StopMaking;
+  Log('Assets: artist ' + FLibrary.Artists[At].Name + ' deleted, with their collections');
+  for var I := High(FLibrary.Collections) downto 0 do
+    if SameText(FLibrary.Collections[I].ArtistId, FArtistId) then
+    begin
+      if not DeleteAssetCollection(FCacheFolder, FLibrary.Collections[I].Id) then
+        Log('Assets: can''t delete the collection ' + FLibrary.Collections[I].Name);
+      Delete(FLibrary.Collections, I, 1);
+    end;
+  Delete(FLibrary.Artists, At, 1);
+  FCollection := Default(TSprite3DAssetCollection);
+  FLibrary.Last := String.Empty;
+  if Length(FLibrary.Artists) > 0 then
+    FArtistId := FLibrary.Artists[0].Id
+  else
+    FArtistId := String.Empty;
+  FLibrary.LastArtist := FArtistId;
+  SaveLibrary;
+  OpenCollection(ArtistCollection(FArtistId));
+end;
+
+function TAssetsForm.BulkArtist: String;
+var
+  At: Integer;
+begin
+  Result := String.Empty;
+  At := ArtistIndex(FArtistId);
+  if (At >= 0) and not SameText(FLibrary.Artists[At].Name, UNASSIGNED_ARTIST) then
+    Result := FArtistId;
 end;
 
 procedure TAssetsForm.AddArtistButtonClick(Sender: TObject);
@@ -1769,29 +2295,56 @@ var
   Ticks: TArray<Boolean>;
   Sources: TArray<TSprite3DCollectionSource>;
   Source: TSprite3DCollectionSource;
-  CollectionName, Pick, Chosen, FirstId, Id: String;
-  NewIds: TArray<String>;
+  CollectionName, Pick, Chosen, FirstId, Id, ArtistId, Folder: String;
+  NewIds, Inside, FolderArtists, Rejected, Offered: TArray<String>;
   OnlyDefaults, Stopped: Boolean;
   Added, NoModels, NoFormat, Existing: Integer;
+  Target, Title: String;
 begin
-  if not SelectFolders('Add Artist Collections', StartFolder, Roots) then
+  Target := BulkArtist;
+  if Target = String.Empty then
+    Title := 'Add Artist Collections'
+  else
+    Title := 'Add Collections to ' + FLibrary.Artists[ArtistIndex(Target)].Name;
+  if not SelectFolders(Title, StartFolder, Roots) then
     Exit;
+  // A new log for each artist import
+  try
+    if FileExists(OSFriendlyPath(ImportLogFile)) then
+      TFile.Delete(OSFriendlyPath(ImportLogFile));
+  except
+    // Added to instead
+  end;
+  DebugLog('Artist import: ' + Title + ' from ' + String.Join(', ', Roots));
   FLibrary.LastFolder := Roots[0];
   SaveLibrary;
-  // Each folder directly inside, in name order
+  // Each folder directly inside, in name order, under the artist shown,
+  // or with none, the artist named after the folder chosen
   Folders := nil;
+  FolderArtists := nil;
   for var Root in Roots do
     try
-      Folders := Folders + TDirectory.GetDirectories(OSFriendlyPath(Root));
+      Inside := TDirectory.GetDirectories(OSFriendlyPath(Root));
+      TArray.Sort<String>(Inside, TComparer<String>.Construct(
+        function(const A, B: String): Integer
+        begin
+          Result := CompareText(A, B);
+        end));
+      if Length(Inside) = 0 then
+        Continue;
+      if Target <> String.Empty then
+        ArtistId := Target
+      else
+        ArtistId := EnsureArtist(ExtractFileName(ExcludeTrailingPathDelimiter(Root)));
+      for var Sub in Inside do
+      begin
+        Folders := Folders + [Sub];
+        FolderArtists := FolderArtists + [ArtistId];
+      end;
     except
       on E: Exception do
         Log('Assets: can''t read ' + Root + ': ' + E.Message);
     end;
-  TArray.Sort<String>(Folders, TComparer<String>.Construct(
-    function(const A, B: String): Integer
-    begin
-      Result := CompareText(A, B);
-    end));
   if Length(Folders) = 0 then
   begin
     TDialogService.ShowMessage('There are no folders in ' + String.Join(', ', Roots) + '.');
@@ -1802,6 +2355,7 @@ begin
   NewIds := nil;
   Defaults := nil;
   OnlyDefaults := False;
+  Rejected := nil;
   Stopped := False;
   FirstId := String.Empty;
   Added := 0;
@@ -1809,11 +2363,14 @@ begin
   NoFormat := 0;
   Existing := 0;
   CollectionBar.Enabled := False;
+  ArtistBar.Enabled := False;
   try
-    for var Folder in Folders do
+    for var FolderAt := 0 to High(Folders) do
     begin
+      Folder := Folders[FolderAt];
+      ArtistId := FolderArtists[FolderAt];
       CollectionName := ExtractFileName(ExcludeTrailingPathDelimiter(Folder));
-      if HasCollection(CollectionName) then
+      if HasCollection(CollectionName, ArtistId) then
       begin
         Log('Assets: ' + CollectionName + ' is a collection already; passed over');
         Inc(Existing);
@@ -1845,15 +2402,27 @@ begin
           Inc(NoFormat);
           Continue;
         end;
-        SetLength(Counts, Length(Formats));
-        for var I := 0 to High(Formats) do
+        // Formats a Skip has turned down already are not offered again; with
+        // only those, it is not asked about at all
+        Offered := nil;
+        for var Ext in Formats do
+          if IndexText(Ext, Rejected) < 0 then
+            Offered := Offered + [Ext];
+        if Length(Offered) = 0 then
+        begin
+          Log('Assets: ' + CollectionName + ' has only formats skipped before; passed over');
+          Inc(NoFormat);
+          Continue;
+        end;
+        SetLength(Counts, Length(Offered));
+        for var I := 0 to High(Offered) do
         begin
           Counts[I] := 0;
           for var Item in Found do
-            if Item.Format = Formats[I] then
+            if Item.Format = Offered[I] then
               Inc(Counts[I], Item.Count);
         end;
-        case AskFormat(CollectionName, Formats, Counts, Defaults, Chosen) of
+        case AskFormat(CollectionName, Offered, Counts, Defaults, Chosen) of
           faImport:
             begin
               Pick := Chosen;
@@ -1863,6 +2432,8 @@ begin
             end;
           faSkip:
             begin
+              // What it offered is turned down, for the folders still to come
+              Rejected := Rejected + Offered;
               Inc(NoFormat);
               Continue;
             end;
@@ -1887,7 +2458,7 @@ begin
           Source.Formats := [Found[I].Format];
           Sources := Sources + [Source];
         end;
-      Id := NewCollection(CollectionName, Sources);
+      Id := NewCollection(CollectionName, Sources, ArtistId);
       if Id = String.Empty then
         Continue;
       Inc(Added);
@@ -1897,6 +2468,7 @@ begin
     end;
   finally
     CollectionBar.Enabled := True;
+    ArtistBar.Enabled := True;
   end;
   if Length(Defaults) > 0 then
   begin
@@ -2001,10 +2573,8 @@ begin
   FCollection := Default(TSprite3DAssetCollection);
   FLibrary.Last := String.Empty;
   SaveLibrary;
-  if Length(FLibrary.Collections) > 0 then
-    OpenCollection(FLibrary.Collections[0].Id)
-  else
-    OpenCollection(String.Empty);
+  // Another of the same artist's, if they have one
+  OpenCollection(ArtistCollection(FArtistId));
 end;
 
 
@@ -2022,6 +2592,73 @@ procedure TAssetsForm.Log(const AText: String);
 begin
   if Assigned(FOnLog) then
     FOnLog(AText);
+  DebugLog(AText);
+end;
+
+procedure TAssetsForm.DebugLog(const AText: String);
+begin
+  try
+    TFile.AppendAllText(OSFriendlyPath(ImportLogFile), FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz',
+      Now) + ' ' + AText + sLineBreak, TEncoding.UTF8);
+  except
+    // A log that can't be written is no reason to stop
+  end;
+end;
+
+function TAssetsForm.ImportLogFile: String;
+begin
+  Result := TPath.Combine(ExtractFileDir(AssetDatabaseFile(FCacheFolder)),
+    IMPORT_LOG_FILE_NAME);
+end;
+
+function TAssetsForm.LoadingFile: String;
+begin
+  Result := TPath.Combine(ExtractFileDir(AssetDatabaseFile(FCacheFolder)),
+    LOADING_FILE_NAME);
+end;
+
+function TAssetsForm.SkipFile: String;
+begin
+  Result := TPath.Combine(ExtractFileDir(AssetDatabaseFile(FCacheFolder)), SKIP_FILE_NAME);
+end;
+
+procedure TAssetsForm.LoadSkipped;
+var
+  Hung: String;
+begin
+  if FSkipped = nil then
+    Exit;
+  FSkipped.Clear;
+  try
+    if FileExists(OSFriendlyPath(SkipFile)) then
+      for var Line in TFile.ReadAllLines(OSFriendlyPath(SkipFile), TEncoding.UTF8) do
+        if Trim(Line) <> String.Empty then
+          FSkipped.Add(Trim(Line));
+    // The program stopped, without closing, with this model in the viewport
+    if FileExists(OSFriendlyPath(LoadingFile)) then
+    begin
+      Hung := Trim(TFile.ReadAllText(OSFriendlyPath(LoadingFile), TEncoding.UTF8));
+      TFile.Delete(OSFriendlyPath(LoadingFile));
+      if Hung <> String.Empty then
+      begin
+        FSkipped.Add(Hung);
+        TFile.WriteAllLines(OSFriendlyPath(SkipFile), FSkipped.ToStringArray,
+          TEncoding.UTF8);
+        Log('Assets: the program stopped last time with ' + Hung + ' loading or shown; ' +
+          'it is passed over from now on (take it out of ' + SkipFile + ' to try it again)');
+      end;
+    end;
+  except
+    on E: Exception do
+      Log('Assets: can''t read the models passed over: ' + E.Message);
+  end;
+  if FSkipped.Count > 0 then
+    Log(Format('Assets: %d models passed over, listed in %s', [FSkipped.Count, SkipFile]));
+end;
+
+function TAssetsForm.IsSkipped(const AFile: String): Boolean;
+begin
+  Result := (FSkipped <> nil) and (FSkipped.IndexOf(AFile) >= 0);
 end;
 
 function TAssetsForm.Making: Boolean;
@@ -2029,27 +2666,23 @@ begin
   Result := (FMaking >= 0) or (Length(FQueue) > 0);
 end;
 
-procedure TAssetsForm.ClearThumbnails;
+procedure TAssetsForm.ClearLibrary;
 var
-  Count, Failed: Integer;
+  Error: String;
 begin
+  StopBulk('the library cleared');
   StopMaking;
   Inc(FScanId);   // drops hashing still under way
-  Count := ClearAssetCache(FCacheFolder, Failed);
-  Log(Format('Assets: %d cached thumbnails deleted from %s', [Count, FCacheFolder]));
-  if Failed > 0 then
-    Log(Format('Assets: %d files in %s could not be deleted', [Failed, FCacheFolder]));
-  if Visible and (FCollection.Id <> String.Empty) then
-    OpenCollection(FCollection.Id)
+  if ClearAssetLibrary(FCacheFolder, Error) then
+    Log('Assets: the library, its collections and every thumbnail deleted')
   else
-  begin
-    // Not showing: nothing to make now; opening a collection makes them
-    FEntries := nil;
-    SelectEntry(-1);
-    BuildTiles;
-    BuildGroups;
-    StatusLabel.Text := 'Thumbnails cleared';
-  end;
+    Log('Assets: the library is cleared, but some could not be deleted: ' + Error);
+  // Empty from here on; nothing of before it to move in
+  FLibrary := Default(TSprite3DAssetLibrary);
+  FLibraryLoaded := True;
+  FArtistId := String.Empty;
+  FIconBitmaps.Clear;
+  OpenCollection(String.Empty);
 end;
 
 procedure TAssetsForm.ScanCollection;
@@ -2542,7 +3175,8 @@ begin
     Icon := TImage.Create(Tile);
     Icon.Parent := Tile;
     Icon.Align := TAlignLayout.Top;
-    Icon.Height := TILE_IMAGE;
+    // Inset from a thumbnail's box, the name below having the room it has
+    Icon.Height := TILE_IMAGE - 20;
     Icon.Margins.Rect := TRectF.Create(20, 20, 20, 0);
     Icon.WrapMode := TImageWrapMode.Fit;
     Icon.HitTest := False;
@@ -2984,6 +3618,11 @@ begin
     CollectionNamed(Ask, Trim(AValues[0]));
     Exit;
   end;
+  if Ask in [gnNewArtist, gnRenameArtist] then
+  begin
+    ArtistNamed(Ask, Trim(AValues[0]));
+    Exit;
+  end;
   GroupName := LowerCase(Trim(AValues[0]));
   if GroupName = String.Empty then
     Exit;
@@ -3192,6 +3831,50 @@ begin
       Log('Assets: can''t save the collection ' + FCollection.Name + ' in ' + FCacheFolder +
         ': ' + E.Message);
   end;
+  // The counts the bars show, refilled only when they change
+  for var I := 0 to High(FLibrary.Collections) do
+    if SameText(FLibrary.Collections[I].Id, FCollection.Id) then
+    begin
+      if (FLibrary.Collections[I].Models <> Length(FCollection.Models)) or
+        (FLibrary.Collections[I].Scanned <> FCollection.Scanned) then
+      begin
+        FLibrary.Collections[I].Models := Length(FCollection.Models);
+        FLibrary.Collections[I].Scanned := FCollection.Scanned;
+        FillCollections;
+      end;
+      Break;
+    end;
+end;
+
+function TAssetsForm.CountText(const ACount: Integer; const AWord: String): String;
+begin
+  Result := FormatFloat('#,##0', ACount) + ' ' + AWord;
+  if ACount <> 1 then
+    Result := Result + 's';
+end;
+
+function TAssetsForm.ArtistText(const AArtist: TSprite3DArtist): String;
+var
+  Collections, Models: Integer;
+begin
+  Collections := 0;
+  Models := 0;
+  for var Entry in FLibrary.Collections do
+    if SameText(Entry.ArtistId, AArtist.Id) then
+    begin
+      Inc(Collections);
+      Inc(Models, Entry.Models);
+    end;
+  Result := AArtist.Name + '  (' + CountText(Collections, 'collection') + ', ' +
+    CountText(Models, 'model') + ')';
+end;
+
+function TAssetsForm.CollectionText(const AEntry: TSprite3DLibraryEntry): String;
+begin
+  if AEntry.Scanned then
+    Result := AEntry.Name + '  (' + CountText(AEntry.Models, 'model') + ')'
+  else
+    Result := AEntry.Name + '  (not imported yet)';
 end;
 
 procedure TAssetsForm.ShowGroup(const AGroup: String);
@@ -3638,29 +4321,63 @@ begin
   if not LoadEntryModel(AIndex) then
     Exit;
   FPreviewIndex := AIndex;
+  // The floor, Y = 0 in the model's own space, where it will stand on the
+  // level's grid: lines at the level's spacing, one through its centre of
+  // rotation, so a model off the floor, or off the grid, shows
+  FPreviewGrid := TModelGrid.Create(nil);
+  FPreviewGrid.Parent := FModel;
+  FPreviewGrid.GridSize := FGridSize;
+  FPreviewGrid.GridColor := PREVIEW_GRID_COLOUR;
+  FPreviewGrid.GridLevel := 0;
+  FPreviewGrid.SetExtent(FModelBox.TopLeftNear, FModelBox.BottomRightFar,
+    FModel.RotationCenter.Point);
   FrameModel(FViewport.Width, FViewport.Height);
 end;
 
 function TAssetsForm.LoadEntryModel(const AIndex: Integer): Boolean;
 var
   Box: TBoundingBox;
+  FileName: String;
+  Watch: TStopwatch;
+  Bytes: Int64;
 begin
+  FileName := FEntries[AIndex].Meta.FileName;
+  if IsSkipped(FileName) then
+  begin
+    Log('Assets: ' + FileName + ' passed over: it was in the viewport when the program ' +
+      'last stopped');
+    Exit(False);
+  end;
+  // Named while it is in the viewport, so a hang or crash leaves its name
+  try
+    TFile.WriteAllText(OSFriendlyPath(LoadingFile), FileName, TEncoding.UTF8);
+  except
+    // Only a safeguard
+  end;
+  try
+    Bytes := TFile.GetSize(OSFriendlyPath(FileName));
+  except
+    Bytes := -1;
+  end;
+  DebugLog(Format('loading %s (%s bytes)', [FileName, FormatFloat('#,##0', Bytes)]));
+  Watch := TStopwatch.StartNew;
   // Loaded as the builder will load it: upright, as each model was in
   // Sprite3D, since FMX's Y points down
   FModel := TGorillaModel.Create(FViewport);
   try
     FModel.Parent := FViewport;
-    LoadModelFile(FModel, FEntries[AIndex].Meta.FileName, Box);
+    LoadModelFile(FModel, FileName, Box);
     FModel.RotationAngle.X := 180;
     FModel.ResetToBindPose();
   except
     on E: Exception do
     begin
-      Log('Assets: can''t load ' + FEntries[AIndex].Meta.FileName + ': ' + E.Message);
+      Log('Assets: can''t load ' + FileName + ': ' + E.Message);
       FreeModel;
       Exit(False);
     end;
   end;
+  DebugLog(Format('loaded in %d ms', [Watch.ElapsedMilliseconds]));
   FModelBox := Box;
   FEntries[AIndex].Meta.BoxMin := Box.TopLeftNear;
   FEntries[AIndex].Meta.BoxMax := Box.BottomRightFar;
@@ -3678,10 +4395,19 @@ end;
 procedure TAssetsForm.FreeModel;
 begin
   FPreviewIndex := -1;
+  // Freed with the model, its parent
+  FPreviewGrid := nil;
   if FModel <> nil then
   begin
     FModel.Parent := nil;
     FreeAndNil(FModel);
+  end;
+  // None in the viewport now
+  try
+    if FileExists(OSFriendlyPath(LoadingFile)) then
+      TFile.Delete(OSFriendlyPath(LoadingFile));
+  except
+    // Only a safeguard
   end;
   if FPreviewLabel <> nil then
     UpdatePreviewLabel;
@@ -3691,6 +4417,8 @@ procedure TAssetsForm.StopMaking;
 begin
   if FSettleTimer <> nil then
     FSettleTimer.Enabled := False;
+  if FGrabTimer <> nil then
+    FGrabTimer.Enabled := False;
   if FNextTimer <> nil then
     FNextTimer.Enabled := False;
   if FOffscreen <> nil then
@@ -3778,13 +4506,51 @@ begin
   FSettleTimer.Enabled := False;
   if (FMaking < 0) or (FModel = nil) then
     Exit;
+  DebugLog('grabbing ' + FEntries[FMaking].Meta.Name);
+  FGrabTries := 1;
   if not FOffscreen.Grab(GrabDone(FMaking, FScanId)) then
   begin
     Log('Assets: can''t start the thumbnail of ' + FEntries[FMaking].Meta.Name);
     FMaking := -1;
     FreeModel;
     MakeNextLater;
+    Exit;
   end;
+  FGrabTimer.Enabled := False;
+  FGrabTimer.Enabled := True;
+end;
+
+procedure TAssetsForm.GrabTimerTimer(Sender: TObject);
+begin
+  if (FMaking < 0) or (FMaking > High(FEntries)) then
+  begin
+    FGrabTimer.Enabled := False;
+    Exit;
+  end;
+  // Nothing is drawn while minimised: the grab goes on once it is shown
+  if WindowState = TWindowState.wsMinimized then
+  begin
+    DebugLog('waiting for ' + FEntries[FMaking].Meta.Name + ': the Library is minimised');
+    Exit;
+  end;
+  DebugLog(Format('grab %d of %s not back after %d s: %s', [FGrabTries,
+    FEntries[FMaking].Meta.Name, GRAB_TIMEOUT_MS div 1000, FOffscreen.StateText]));
+  FOffscreen.Cancel;
+  if FGrabTries < GRAB_TRIES then
+  begin
+    Inc(FGrabTries);
+    DebugLog('grabbing ' + FEntries[FMaking].Meta.Name + ' again');
+    FViewport.Invalidate;
+    if FOffscreen.Grab(GrabDone(FMaking, FScanId)) then
+      Exit;   // FGrabTimer runs on for this try
+    Log('Assets: can''t start the thumbnail of ' + FEntries[FMaking].Meta.Name + ' again');
+  end;
+  FGrabTimer.Enabled := False;
+  Log(Format('Assets: no thumbnail for %s: the grab had not come back after %d tries; ' +
+    'passed over', [FEntries[FMaking].Meta.FileName, FGrabTries]));
+  FMaking := -1;
+  FreeModel;
+  MakeNextLater;
 end;
 
 procedure TAssetsForm.FrameModel(const AWidth, AHeight: Single);
@@ -3821,6 +4587,10 @@ end;
 procedure TAssetsForm.ThumbnailGrabbed(const AIndex, AScanId: Integer;
   const ABitmap: TBitmap; const AError: String);
 begin
+  if AIndex = FMaking then
+    FGrabTimer.Enabled := False;
+  DebugLog('grabbed ' + IfThen(ABitmap <> nil, 'an image', 'nothing: ' + AError) +
+    IfThen(FGrabTries > 1, Format(' at try %d', [FGrabTries]), ''));
   if (AScanId <> FScanId) or (AIndex <> FMaking) or (AIndex > High(FEntries)) then
     Exit;   // stopped, or another folder opened, since it was started
   // For the Debug tab: what was framed and how, to check a thumbnail by

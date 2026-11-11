@@ -79,7 +79,7 @@ const
   //** @abstract(The width and height of every asset thumbnail, in pixels.)
   //**
   //** A cached thumbnail of another size is made again, so changing this remakes them all.
-  THUMBNAIL_SIZE = 256;
+  THUMBNAIL_SIZE = 128;
   //** @abstract(The name of the thumbnail cache's folder in SupportFolder, beside
   //** settings.json.)
   THUMBNAIL_FOLDER_NAME = 'thumbnails';

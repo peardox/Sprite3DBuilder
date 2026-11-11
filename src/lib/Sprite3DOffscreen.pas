@@ -267,6 +267,8 @@ type
     FOpaqueBackground: TAlphaColor;
     FBusy: Boolean;      // from Grab until the result has been delivered
     FPending: Boolean;   // waiting for the frame to read back
+    FBeginRenders: Integer;   // render passes begun since the last Grab, for StateText
+    FEndRenders: Integer;     // render passes ended since the last Grab, for StateText
     FStage: Integer;     // how this grab draws; see Grab
     FColours: TArray<TAlphaColor>; // the background of each drawing
     FReads: TArray<TBytes>;        // each drawing, RGBA rows bottom first
@@ -430,6 +432,12 @@ type
     function SinglePassOverscan(const AWidth, AHeight: Integer): Integer;
     //** @abstract(True from a successful Grab until its procedure has run or Cancel.)
     property Busy: Boolean read FBusy;
+    //** @abstract(How the grab under way stands, for a log: busy, waiting for a drawing, how
+    //** it draws, which drawing it is on, whether the pass is enabled, and how many render
+    //** passes have begun and ended since Grab was called.)
+    //**
+    //** @returns(One line of text.)
+    function StateText: String;
   published
     //** @abstract(The target's width in pixels; 256 by default.)
     //**
@@ -1210,6 +1218,22 @@ begin
     ApplyTargetSize;
 end;
 
+function TSprite3DOffscreen.StateText: String;
+const
+  STAGES: array[STAGE_OPAQUE..STAGE_FRAMES] of String = ('opaque', 'iterations', 'frames');
+var
+  Stage: String;
+begin
+  if (FStage >= Low(STAGES)) and (FStage <= High(STAGES)) then
+    Stage := STAGES[FStage]
+  else
+    Stage := IntToStr(FStage);
+  Result := Format('busy %s, pending %s, stage %s, drawing %d of %d, iterations %d, ' +
+    'enabled %s, verifying %s, render passes begun %d, ended %d', [BoolToStr(FBusy, True),
+    BoolToStr(FPending, True), Stage, FIndex + 1, Length(FColours), Iterations,
+    BoolToStr(Enabled, True), BoolToStr(FVerifyClear, True), FBeginRenders, FEndRenders]);
+end;
+
 function TSprite3DOffscreen.Grab(const AOnGrabbed: TSprite3DGrabProc): Boolean;
 begin
   Result := (not FBusy) and Assigned(Viewport) and Assigned(AOnGrabbed);
@@ -1217,6 +1241,8 @@ begin
     Exit;
   FOnGrabbed := AOnGrabbed;
   FBusy := True;
+  FBeginRenders := 0;
+  FEndRenders := 0;
   {$IFDEF S3D_SCREENSHOT_GRAB}
   GrabScreenshot;   // reports through Deliver, as the render does
   Exit;
@@ -1498,6 +1524,7 @@ end;
 procedure TSprite3DOffscreen.HandleBeginRender(ASender: TObject;
   const AContext: TContext3D; const ACount: Integer; const APass: TRenderPass);
 begin
+  Inc(FBeginRenders);
   if FPending and (FStage = STAGE_ITERATIONS) and (ACount <= High(FColours)) then
     BackgroundColor := FColours[ACount];
 end;
@@ -1512,6 +1539,7 @@ var
   Error: String;
   Pixels: TBytes;
 begin
+  Inc(FEndRenders);
   if not FPending then
     Exit;
 

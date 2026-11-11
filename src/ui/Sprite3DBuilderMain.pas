@@ -214,15 +214,15 @@ type
     OrbitCamera: TSpritelyOrbitalCamera;
     //** @abstract(The form's menu bar, holding FileMenu.)
     MainMenu1: TMainMenu;
-    //** @abstract(The "File" menu: Library..., Clear Thumbnails, Settings..., Licences... and
+    //** @abstract(The "File" menu: Library..., Clear Library..., Settings..., Licences... and
     //** Exit.)
     FileMenu: TMenuItem;
     //** @abstract(The "Library..." item, first in File; see LibraryItemClick. Desktop only:
     //** freed on Android and iOS, which have no folder dialog to add collections with.)
     LibraryItem: TMenuItem;
-    //** @abstract(The "Clear Thumbnails" item, after Library; see ClearThumbnailsItemClick.
+    //** @abstract(The "Clear Library..." item, after Library; see ClearLibraryItemClick.
     //** Desktop only, as Library is.)
-    ClearThumbnailsItem: TMenuItem;
+    ClearLibraryItem: TMenuItem;
     //** @abstract(The File menu's "Licences..." item; see LicencesMenuItemClick.)
     LicencesMenuItem: TMenuItem;
     //** @abstract(The "Settings..." item; see SettingsMenuItemClick.)
@@ -419,15 +419,16 @@ type
     //** @abstract(Opens the Library at start if it has collections, or there is a palette of
     //** before the library to make one of; queued from FormShow, desktop only.)
     procedure OpenLastLibrary;
-    //** @abstract(Asks, then deletes every cached thumbnail and its metadata.)
+    //** @abstract(Asks, then deletes the whole library: the database and the thumbnail
+    //** folder with everything in it.)
     //**
-    //** The cache is TSprite3DAppSettings.ThumbnailFolder. If the Assets form is open, it
-    //** does it (TAssetsForm.ClearThumbnails) and makes the thumbnails of its folders again;
-    //** if it has not been made yet, ClearAssetCache is called here. What was done goes to
-    //** the Debug tab. No changes nothing.
+    //** If the Library form has been made, it does it (TAssetsForm.ClearLibrary) and shows
+    //** itself empty; if not, ClearAssetLibrary is called here, on
+    //** TSprite3DAppSettings.ThumbnailFolder. What was done goes to the Debug tab. The model
+    //** files are never touched. No changes nothing.
     //**
-    //** @param(Sender ClearThumbnailsItem.)
-    procedure ClearThumbnailsItemClick(Sender: TObject);
+    //** @param(Sender ClearLibraryItem.)
+    procedure ClearLibraryItemClick(Sender: TObject);
     //** @abstract(Shows the third-party licences and notices the program carries, from its
     //** own resources: TLicencesForm, by ShowLicences.)
     //**
@@ -1176,7 +1177,7 @@ begin
   // There is no folder dialog there to add collections with, so no
   // Library, nor a cache of its thumbnails to clear
   LibraryItem.Free;
-  ClearThumbnailsItem.Free;
+  ClearLibraryItem.Free;
   // Built from the finished menus, so it comes after every item is added
   BuildMobileMenu;
   {$ENDIF}
@@ -1825,6 +1826,7 @@ begin
       end;
     FAssetsForm.MigrationFolder := OSFriendlyPath(FSettings.AssetFolder);
   end;
+  FAssetsForm.GridSize := FSettings.GridSize;
   FAssetsForm.ShowLibrary;
 end;
 
@@ -1846,27 +1848,26 @@ begin
 end;
 
 // Asks first, as the thumbnails take a while to make again
-procedure TMainForm.ClearThumbnailsItemClick(Sender: TObject);
+procedure TMainForm.ClearLibraryItemClick(Sender: TObject);
 begin
-  TDialogService.MessageDialog('Delete every cached thumbnail? They are made again ' +
-    'the next time a folder is opened, or now if the Assets form is showing one.',
-    TMsgDlgType.mtConfirmation, [TMsgDlgBtn.mbYes, TMsgDlgBtn.mbNo], TMsgDlgBtn.mbNo, 0,
+  TDialogService.MessageDialog('Delete the whole library: every collection, its groups and ' +
+    'icons chosen, and every thumbnail? The model files themselves are not touched. This ' +
+    'cannot be undone.',
+    TMsgDlgType.mtWarning, [TMsgDlgBtn.mbYes, TMsgDlgBtn.mbNo], TMsgDlgBtn.mbNo, 0,
     procedure(const AResult: TModalResult)
     var
-      Count, Failed: Integer;
+      Error: String;
     begin
       if (AResult <> mrYes) or MainFormGone then
         Exit;
       if FAssetsForm <> nil then
-        FAssetsForm.ClearThumbnails
+        FAssetsForm.ClearLibrary
+      else if ClearAssetLibrary(TSprite3DAppSettings.ThumbnailFolder, Error) then
+        DebugMemo.Lines.Add('Assets: the library, its collections and every thumbnail ' +
+          'deleted')
       else
-      begin
-        Count := ClearAssetCache(TSprite3DAppSettings.ThumbnailFolder, Failed);
-        DebugMemo.Lines.Add(Format('Assets: %d cached thumbnails deleted from %s',
-          [Count, TSprite3DAppSettings.ThumbnailFolder]));
-        if Failed > 0 then
-          DebugMemo.Lines.Add(Format('Assets: %d files could not be deleted', [Failed]));
-      end;
+        DebugMemo.Lines.Add('Assets: the library is cleared, but some could not be ' +
+          'deleted: ' + Error);
     end);
 end;
 

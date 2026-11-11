@@ -5,7 +5,7 @@ the owner works, the rules for the code, and where the work has got to.
 `README.md` describes the program for its users and developers; this file
 is for Claude. Read both.
 
-Last updated: 11 November 2026, 04:20.
+Last updated: 11 November 2026, 05:10.
 
 ## Starting a new conversation
 
@@ -648,6 +648,107 @@ table moves `library.json` + `collection-*.json` in (renamed `.moved`);
 `LoadAssetMeta` moves a key's `.json` in when the DB lacks it (then
 deletes it). `ClearAssetCache` = files + `DELETE FROM meta`. JSON writers
 gone; JSON readers kept private as `ReadLegacy*`; BSON plan dropped.
+Builder3t: `GroupMenuSeparator` declared (sync + verify, owner 03:08).
+Builder3u (owner 03:13): File, Clear Thumbnails became **Clear Library...**
+(`ClearLibraryItem`, warning dialog): `ClearAssetLibrary` closes and drops
+the connection, deletes `library.db` (+ -wal, -shm, -journal) and the
+whole cache folder recursively; `TAssetsForm.ClearLibrary` (was
+`ClearThumbnails`) stops everything first, then shows the library empty
+(no migration afterwards: `FLibraryLoaded` stays True). `ClearAssetCache`
+is kept in the unit but nothing calls it now.
+Builder3v (owner 03:19): the preview has Sprite3D's checker
+(`FBackground`, TSprite3DBackground, Transparent, 16 px squares; 2D behind
+the viewport, never in grabs) and a floor grid (`FPreviewGrid`,
+TModelGrid, child of the preview's `FModel`, `GridLevel` 0 = the model's
+own floor, `GridSize` = the level's, set by the main form through
+`TAssetsForm.GridSize`, `SetExtent` from `FModelBox` and the centre of
+rotation), made only in `ShowPreview`, so never while a thumbnail is made.
+Builder3w (owner 03:36): `THUMBNAIL_SIZE` 128
+(older ones remade as met). **Artists** above collections: lib
+`TSprite3DArtist` (Id GUID, Name), `TSprite3DAssetLibrary.Artists`,
+`LastArtist`, `TSprite3DLibraryEntry.ArtistId`,
+`TSprite3DAssetCollection.ArtistId`; DB version 2: table `artists` (id,
+name, position; rewritten as listed by `SaveAssetLibrary`), columns
+`collections.artist_id`, `library.last_artist` (ALTER TABLE from 1). Form:
+`ArtistBar` above `CollectionBar` (`ArtistCombo`, `ArtistMenuButton` ->
+`ArtistMenu` Rename/Delete (deletes their collections from the library),
+`NewArtistButton` "Add Artist...", `AddArtistButton` "Add Artist
+Collections..." moved here); `CollectionCombo` lists only the artist's
+(`FShownCollections`); Add New Asset Collection needs an artist and adds
+to it; collection names unique per artist; artist import: the chosen
+folder's name is the artist (`EnsureArtist`); `AssignOrphans` puts
+artist-less collections under "Unassigned" (`UNASSIGNED_ARTIST`);
+`CollectionMenu` gained **Move to Artist** (sub-menu rebuilt on open,
+`MoveToArtistClick`). Owner: this is the Library done for now; next is
+placing on the level, Builder4.
+
+Builder3x (owner 03:51): the owner added the artist Kay Lousberg and
+imported his KayKit folder, which made an artist KayKit (the product
+line). Artist import now puts its collections under the artist shown
+(`BulkArtist`); only with none shown, or Unassigned, is the chosen
+folder's name the artist (`EnsureArtist`). The folder picker's title says
+which. The preview grid not showing was a scan in progress (`ShowPreview`
+does nothing while `Making`), not a fault.
+
+Builder3y (owner 04:00): counts in the bars. Lib:
+`TSprite3DLibraryEntry` gained `Models` and `Scanned`, read by
+`LoadAssetLibrary` (a sub-select counts `models` rows per collection),
+never written by `SaveAssetLibrary`. Form: `ArtistText` ("Name  (n
+collections, n models)"), `CollectionText` ("Name  (n models)" or "(not
+imported yet)"), `CountText`; `SavePalette` updates the entry and calls
+`FillCollections` when the count or Scanned changed. Both combos 380 wide.
+
+Builder3z (owner 04:06): tiles show thumbnails at their own size:
+`TILE_IMAGE = THUMBNAIL_SIZE` (128), `TILE_WIDTH` = +8 (136),
+`TILE_HEIGHT` = +28 (156); group tiles' icon box `TILE_IMAGE - 20`.
+
+Builder3za (owner 04:26, Kenney's 50 packs, 4 FBX-only, wanted glTF):
+artist import's Skip now turns down the formats the pack offered
+(`Rejected`); a later pack whose formats are all turned down is passed
+over without asking. `AskFormat` texts say so.
+
+Builder3zb (owner 04:39, Kenney's OBJs hung on one model): import log and
+hang guard. `Log` also writes to `library-import.log` (settings folder,
+`ImportLogFile`, `DebugLog` opens/appends/closes per line so a hang
+leaves it whole; deleted at the start of each artist import).
+`LoadEntryModel` logs "loading <file> (bytes)" and "loaded in n ms",
+`SettleTimerTimer` "grabbing". While a model is in the viewport its file
+is named in `library-loading.txt` (`LoadingFile`, deleted by
+`FreeModel`); `ShowLibrary` -> `LoadSkipped` moves one left there into
+`library-skipped.txt` (`SkipFile`, `FSkipped`, `IsSkipped`), and
+`LoadEntryModel` passes those over (thumbnail and preview). Next: read the
+owner's log to see why the model hangs.
+
+Builder3zc (owner 04:44): it was not a hang: the progress stopped but the
+window still closed, so a grab never came back (Sprite3D imported the same
+OBJs fine). `FGrabTimer` (`GRAB_TIMEOUT_MS` 15000), started after
+`FOffscreen.Grab`, stopped by `ThumbnailGrabbed`/`StopMaking`:
+`GrabTimerTimer` logs it, `FOffscreen.Cancel`, passes the model over (not
+added to the skipped list) and goes on; minimised, it waits. Log lines
+"grabbed an image"/"grabbed nothing: ...". Still to find: why the grab of
+that model never returns.
+
+Builder3zd (owner 04:48): the IDE refused README.md ("One or more lines
+were too long and have been truncated"): the Library paragraph had grown
+to 4138 characters. Split into paragraphs. **Keep every line of every
+file well under 1000 characters**; add a new paragraph rather than
+lengthen one.
+
+Builder3ze (owner 04:52): a skipped format was still offered by the next
+pack that had others too. Artist import now asks only about `Offered`,
+the pack's formats less `Rejected`.
+
+Builder3zf (owner 04:57, log of Kenney OBJ): 4 of Blaster Kit's 40
+(blaster-a, blaster-q, crate-medium, crate-wide) loaded in ~20 ms but
+their grab never came back; one Brick Kit grab took 3.7 s then worked.
+Looks intermittent, not the model. Lib: `TSprite3DOffscreen.StateText`
+(busy, pending, stage, drawing, iterations, enabled, verifying, render
+passes begun/ended since `Grab`: `FBeginRenders`/`FEndRenders`). Form:
+`GRAB_TIMEOUT_MS` 4000, `GRAB_TRIES` 3, `FGrabTries`; `GrabTimerTimer`
+logs `StateText`, cancels, invalidates the viewport and grabs again, then
+passes over. Next: read StateText in the owner's log (passes ended 0 =
+the viewport stopped drawing; ended > 0 with pending = HandleEndRender's
+stage logic; not pending = the worker/queue).
 
 **Next, Builder4:** dragging a thumbnail from the Assets form onto the
 level, with a bounding box showing where it will go, snapped to the grid,

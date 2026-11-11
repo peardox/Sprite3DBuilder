@@ -105,7 +105,7 @@ const
   //** @abstract(The database, in the settings folder; see AssetDatabaseFile.)
   ASSET_DATABASE_FILE_NAME = 'library.db';
   //** @abstract(The database's schema version, kept in its @code(user_version).)
-  ASSET_DATABASE_VERSION = 1;
+  ASSET_DATABASE_VERSION = 2;
 
 type
   //** @abstract(What the cache keeps about one model.)
@@ -187,6 +187,8 @@ type
     Models: TArray<TSprite3DCollectionModel>;
     //** @abstract(True once its folders have been scanned, so Models is whole.)
     Scanned: Boolean;
+    //** @abstract(The id of the artist it is under; see TSprite3DArtist.)
+    ArtistId: String;
   end;
 
   //** @abstract(A collection as the library lists it.)
@@ -195,11 +197,29 @@ type
     Id: String;
     //** @abstract(Its name.)
     Name: String;
+    //** @abstract(The id of the artist it is under; empty for none yet.)
+    ArtistId: String;
+    //** @abstract(How many models it has, as last written by SaveAssetCollection; read by
+    //** LoadAssetLibrary, never written by SaveAssetLibrary.)
+    Models: Integer;
+    //** @abstract(True once its folders have been scanned, as last written by
+    //** SaveAssetCollection; read by LoadAssetLibrary, never written by SaveAssetLibrary.)
+    Scanned: Boolean;
+  end;
+
+  //** @abstract(An artist: whoever made the collections under them; the library's top level.)
+  TSprite3DArtist = record
+    //** @abstract(Their id: letters, digits and hyphens, as a collection's is.)
+    Id: String;
+    //** @abstract(Their name, as the user sees it.)
+    Name: String;
   end;
 
   //** @abstract(The library: every collection, and which was open last.)
   TSprite3DAssetLibrary = record
-    //** @abstract(The collections, in the order they were added.)
+    //** @abstract(The artists, in the order they were added.)
+    Artists: TArray<TSprite3DArtist>;
+    //** @abstract(The collections, in the order they were added, each under its artist.)
     Collections: TArray<TSprite3DLibraryEntry>;
     //** @abstract(The id of the collection open last; empty for none.)
     Last: String;
@@ -208,6 +228,8 @@ type
     //** @abstract(The model format the user prefers when a folder holds the same models in
     //** several, as its extension, such as @code(.gltf); empty for none chosen yet.)
     PreferredFormat: String;
+    //** @abstract(The id of the artist shown last; empty for none.)
+    LastArtist: String;
   end;
 
   //** @abstract(Works out models' keys; see the unit's description.)
@@ -314,6 +336,18 @@ function LoadAssetMeta(const ACacheFolder, AHash: String;
 //** @returns(How many models' metadata were deleted.)
 function ClearAssetCache(const ACacheFolder: String; out AFailed: Integer): Integer;
 
+//** @abstract(Deletes the whole library: the database, ASSET_DATABASE_FILE_NAME and its
+//** journal files, and the cache folder with everything in it, every thumbnail among it.)
+//**
+//** The database's connection is closed first. The model files themselves are never touched.
+//**
+//** @param(ACacheFolder The cache folder; see AssetDatabaseFile.)
+//**
+//** @param(AError On return, what could not be deleted, and why; empty if all was.)
+//**
+//** @returns(True if everything was deleted; never an exception.)
+function ClearAssetLibrary(const ACacheFolder: String; out AError: String): Boolean;
+
 //** @abstract(Reads the palette file of before the library, palette.json, from ACacheFolder,
 //** so it can be moved into the library as a collection.)
 //**
@@ -349,8 +383,12 @@ function NewCollectionId: String;
 function LoadAssetLibrary(const ACacheFolder: String;
   out ALibrary: TSprite3DAssetLibrary): Boolean;
 
-//** @abstract(Writes the library to the database: the last collection open, the last folder,
-//** the preferred format, and each collection's name and place in the list.)
+//** @abstract(Writes the library to the database: the last artist and collection open, the
+//** last folder, the preferred format, the artists in order, and each collection's name,
+//** artist and place in the list.)
+//**
+//** The artists are written as listed, so one left out is deleted; delete its collections
+//** with DeleteAssetCollection first.
 //**
 //** A collection the list has that the database has not is added, with nothing in it.
 //**
@@ -852,6 +890,7 @@ begin
         begin
           if not (Item is TJSONObject) then
             Continue;
+          Entry := Default(TSprite3DLibraryEntry);
           Entry.Id := TJSONObject(Item).GetValue<String>('id', '');
           Entry.Name := Trim(TJSONObject(Item).GetValue<String>('name', ''));
           if IsCollectionId(Entry.Id) and (Entry.Name <> String.Empty) then
@@ -1072,6 +1111,18 @@ begin
       'min_x REAL, min_y REAL, min_z REAL, max_x REAL, max_y REAL, max_z REAL, ' +
       'thumb_width INTEGER NOT NULL, thumb_height INTEGER NOT NULL, thumb_view TEXT NOT NULL, ' +
       'created TEXT NOT NULL)');
+    // 2: artists, above collections
+    AConnection.ExecSQL('CREATE TABLE IF NOT EXISTS artists (id TEXT PRIMARY KEY, name ' +
+      'TEXT NOT NULL, position INTEGER NOT NULL)');
+    if Version < 2 then
+    begin
+      // A database of 1 has these tables without the new columns; a new one
+      // was made just now without them too
+      AConnection.ExecSQL('ALTER TABLE collections ADD COLUMN artist_id TEXT NOT NULL ' +
+        'DEFAULT ''''');
+      AConnection.ExecSQL('ALTER TABLE library ADD COLUMN last_artist TEXT NOT NULL ' +
+        'DEFAULT ''''');
+    end;
     AConnection.ExecSQL('PRAGMA user_version = ' + IntToStr(ASSET_DATABASE_VERSION));
     AConnection.Commit;
   except
@@ -1280,8 +1331,11 @@ var
   Connection: TFDConnection;
   Query: TFDQuery;
   Entry: TSprite3DLibraryEntry;
+  Artist: TSprite3DArtist;
 begin
   Result := False;
+  ALibrary.Artists := nil;
+  ALibrary.LastArtist := String.Empty;
   ALibrary.Collections := nil;
   ALibrary.Last := String.Empty;
   ALibrary.LastFolder := String.Empty;
@@ -1298,15 +1352,34 @@ begin
       ALibrary.Last := Query.FieldByName('last_id').AsString;
       ALibrary.LastFolder := Query.FieldByName('last_folder').AsString;
       ALibrary.PreferredFormat := Query.FieldByName('preferred_format').AsString;
+      ALibrary.LastArtist := Query.FieldByName('last_artist').AsString;
     finally
       Query.Free;
     end;
-    Query := OpenQuery(Connection, 'SELECT id, name FROM collections ORDER BY position', []);
+    Query := OpenQuery(Connection, 'SELECT id, name FROM artists ORDER BY position', []);
+    try
+      while not Query.Eof do
+      begin
+        Artist.Id := Query.FieldByName('id').AsString;
+        Artist.Name := Query.FieldByName('name').AsString;
+        ALibrary.Artists := ALibrary.Artists + [Artist];
+        Query.Next;
+      end;
+    finally
+      Query.Free;
+    end;
+    // Each with how many models it has, for the counts the Library shows
+    Query := OpenQuery(Connection, 'SELECT c.id, c.name, c.artist_id, c.scanned, ' +
+      '(SELECT COUNT(*) FROM models m WHERE m.collection_id = c.id) AS model_count ' +
+      'FROM collections c ORDER BY c.position', []);
     try
       while not Query.Eof do
       begin
         Entry.Id := Query.FieldByName('id').AsString;
         Entry.Name := Query.FieldByName('name').AsString;
+        Entry.ArtistId := Query.FieldByName('artist_id').AsString;
+        Entry.Scanned := Query.FieldByName('scanned').AsInteger <> 0;
+        Entry.Models := Query.FieldByName('model_count').AsInteger;
         ALibrary.Collections := ALibrary.Collections + [Entry];
         Query.Next;
       end;
@@ -1328,13 +1401,21 @@ begin
   Connection.StartTransaction;
   try
     Connection.ExecSQL('INSERT OR REPLACE INTO library (id, last_id, last_folder, ' +
-      'preferred_format) VALUES (1, :last_id, :last_folder, :preferred_format)',
-      [ALibrary.Last, ALibrary.LastFolder, ALibrary.PreferredFormat]);
+      'preferred_format, last_artist) VALUES (1, :last_id, :last_folder, ' +
+      ':preferred_format, :last_artist)', [ALibrary.Last, ALibrary.LastFolder,
+      ALibrary.PreferredFormat, ALibrary.LastArtist]);
+    // The artists as listed: those gone are deleted, their collections with
+    // them by DeleteAssetCollection, which the application calls first
+    Connection.ExecSQL('DELETE FROM artists');
+    for var I := 0 to High(ALibrary.Artists) do
+      Connection.ExecSQL('INSERT INTO artists (id, name, position) VALUES (:id, :name, ' +
+        ':position)', [LowerCase(ALibrary.Artists[I].Id), ALibrary.Artists[I].Name, I]);
     for var I := 0 to High(ALibrary.Collections) do
-      Connection.ExecSQL('INSERT INTO collections (id, name, position, scanned) VALUES ' +
-        '(:id, :name, :position, 0) ON CONFLICT (id) DO UPDATE SET name = excluded.name, ' +
-        'position = excluded.position', [LowerCase(ALibrary.Collections[I].Id),
-        ALibrary.Collections[I].Name, I]);
+      Connection.ExecSQL('INSERT INTO collections (id, name, position, scanned, artist_id) ' +
+        'VALUES (:id, :name, :position, 0, :artist_id) ON CONFLICT (id) DO UPDATE SET ' +
+        'name = excluded.name, position = excluded.position, artist_id = ' +
+        'excluded.artist_id', [LowerCase(ALibrary.Collections[I].Id),
+        ALibrary.Collections[I].Name, I, LowerCase(ALibrary.Collections[I].ArtistId)]);
     Connection.Commit;
   except
     Connection.Rollback;
@@ -1366,6 +1447,7 @@ begin
       ACollection.Id := Query.FieldByName('id').AsString;
       ACollection.Name := Query.FieldByName('name').AsString;
       ACollection.Scanned := Query.FieldByName('scanned').AsInteger <> 0;
+      ACollection.ArtistId := Query.FieldByName('artist_id').AsString;
     finally
       Query.Free;
     end;
@@ -1449,10 +1531,11 @@ begin
   Connection.StartTransaction;
   try
     // Last in the list if it is new; where it was if not
-    Connection.ExecSQL('INSERT INTO collections (id, name, position, scanned) VALUES ' +
-      '(:id, :name, (SELECT COALESCE(MAX(position), -1) + 1 FROM collections), :scanned) ' +
-      'ON CONFLICT (id) DO UPDATE SET name = excluded.name, scanned = excluded.scanned',
-      [Id, ACollection.Name, Ord(ACollection.Scanned)]);
+    Connection.ExecSQL('INSERT INTO collections (id, name, position, scanned, artist_id) ' +
+      'VALUES (:id, :name, (SELECT COALESCE(MAX(position), -1) + 1 FROM collections), ' +
+      ':scanned, :artist_id) ON CONFLICT (id) DO UPDATE SET name = excluded.name, ' +
+      'scanned = excluded.scanned, artist_id = excluded.artist_id',
+      [Id, ACollection.Name, Ord(ACollection.Scanned), LowerCase(ACollection.ArtistId)]);
     for var Table in TArray<String>.Create('sources', 'palette_groups', 'group_models', 'models') do
       Connection.ExecSQL('DELETE FROM ' + Table + ' WHERE collection_id = :id', [Id]);
     for var I := 0 to High(ACollection.Sources) do
@@ -1506,6 +1589,44 @@ begin
   except
     Result := False;
   end;
+end;
+
+function ClearAssetLibrary(const ACacheFolder: String; out AError: String): Boolean;
+var
+  FileName, Folder: String;
+  Connection: TFDConnection;
+begin
+  AError := String.Empty;
+  FileName := AssetDatabaseFile(ACacheFolder);
+  // Closed, so the files can go
+  if (Databases <> nil) and Databases.TryGetValue(LowerCase(FileName), Connection) then
+  begin
+    try
+      Connection.Connected := False;
+    except
+      on E: Exception do
+        AError := AError + 'closing ' + FileName + ': ' + E.Message + sLineBreak;
+    end;
+    Databases.Remove(LowerCase(FileName));
+  end;
+  for var Ext in TArray<String>.Create('', '-wal', '-shm', '-journal') do
+    try
+      if TFile.Exists(FileName + Ext) then
+        TFile.Delete(FileName + Ext);
+    except
+      on E: Exception do
+        AError := AError + FileName + Ext + ': ' + E.Message + sLineBreak;
+    end;
+  Folder := ExcludeTrailingPathDelimiter(OSFriendlyPath(ACacheFolder));
+  try
+    if (Folder <> String.Empty) and TDirectory.Exists(Folder) then
+      TDirectory.Delete(Folder, True);
+  except
+    on E: Exception do
+      AError := AError + Folder + ': ' + E.Message + sLineBreak;
+  end;
+  AError := Trim(AError);
+  Result := AError = String.Empty;
 end;
 
 initialization

@@ -3,7 +3,8 @@
 //**
 //** It says which folder, and which formats it has, with how many models of each; the user
 //** chooses one and Import takes it, as the next default for the folders still to come. Skip
-//** passes over this folder. Only My Defaults passes over this one and every later one with
+//** passes over this folder and turns down the formats it offered, so a later folder with
+//** only those is passed over without asking. Only My Defaults passes over this one and every later one with
 //** none of the formats chosen so far, without asking again. Stop ends the whole operation.
 //** The first time, with no formats chosen yet, Only My Defaults is hidden.
 //**
@@ -13,7 +14,8 @@ unit Sprite3DBuilderFormatForm;
 {
   Which Format: the question Add Artist Collections asks when a folder has
   none of the formats chosen so far. The user chooses one and Import takes
-  it as the next default; Skip passes over this folder; Only My Defaults
+  it as the next default; Skip passes over this folder, and later ones with
+  only the formats it offered; Only My Defaults
   passes over every such folder from now on; Stop ends the operation.
 
   Modal; desktop only. Main thread only.
@@ -115,7 +117,8 @@ begin
     if Length(ADefaults) = 0 then
     begin
       Dialog.InfoLabel.Text := 'Which model format do you want from ' + AFolder +
-        '? It becomes the default for every folder after it.';
+        '? It becomes the default for every folder after it. Or skip it: later ' +
+        'folders with only these formats are passed over too.';
       Dialog.OnlyDefaultsButton.Visible := False;
     end
     else
@@ -125,7 +128,8 @@ begin
         Names := Names + [ModelFormatName(Ext)];
       Dialog.InfoLabel.Text := AFolder + ' has none of your formats so far (' +
         String.Join(', ', Names) + '). Import one of those it has, as your next ' +
-        'default? Or skip it, or keep to your formats so far for every folder still to come.';
+        'default? Or skip it (later folders with only these formats are passed over ' +
+        'too), or keep to your formats so far for every folder still to come.';
     end;
     Dialog.FormatCombo.Clear;
     for var I := 0 to High(AFormats) do

@@ -2,10 +2,10 @@ object AssetsForm: TAssetsForm
   Left = 0
   Top = 0
   Caption = 'Library'
-  ClientHeight = 760
+  ClientHeight = 800
   ClientWidth = 1120
   Constraints.MinWidth = 960.000000000000000000
-  Constraints.MinHeight = 640.000000000000000000
+  Constraints.MinHeight = 680.000000000000000000
   Position = Default
   FormFactor.Width = 320
   FormFactor.Height = 480
@@ -15,6 +15,70 @@ object AssetsForm: TAssetsForm
   OnDestroy = FormDestroy
   OnKeyDown = FormKeyDown
   DesignerMasterStyle = 0
+  object ArtistBar: TLayout
+    Align = Top
+    Padding.Left = 6.000000000000000000
+    Padding.Top = 4.000000000000000000
+    Padding.Right = 6.000000000000000000
+    Padding.Bottom = 2.000000000000000000
+    Size.Width = 1120.000000000000000000
+    Size.Height = 36.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 11
+    object ArtistLabel: TLabel
+      Align = Left
+      Size.Width = 70.000000000000000000
+      Size.Height = 30.000000000000000000
+      Size.PlatformDefault = False
+      Text = 'Artist'
+      TabOrder = 0
+    end
+    object ArtistCombo: TComboBox
+      Align = Left
+      CanFocus = False
+      Position.X = 76.000000000000000000
+      Size.Width = 380.000000000000000000
+      Size.Height = 30.000000000000000000
+      Size.PlatformDefault = False
+      TabOrder = 1
+      OnChange = ArtistComboChange
+    end
+    object ArtistMenuButton: TButton
+      Align = Left
+      CanFocus = False
+      Margins.Left = 4.000000000000000000
+      Position.X = 320.000000000000000000
+      Size.Width = 34.000000000000000000
+      Size.Height = 30.000000000000000000
+      Size.PlatformDefault = False
+      TabOrder = 2
+      Text = '...'
+      OnClick = ArtistMenuButtonClick
+    end
+    object NewArtistButton: TButton
+      Align = Left
+      CanFocus = False
+      Margins.Left = 12.000000000000000000
+      Position.X = 366.000000000000000000
+      Size.Width = 110.000000000000000000
+      Size.Height = 30.000000000000000000
+      Size.PlatformDefault = False
+      TabOrder = 3
+      Text = 'Add Artist...'
+      OnClick = NewArtistButtonClick
+    end
+    object AddArtistButton: TButton
+      Align = Right
+      CanFocus = False
+      Position.X = 904.000000000000000000
+      Size.Width = 190.000000000000000000
+      Size.Height = 30.000000000000000000
+      Size.PlatformDefault = False
+      TabOrder = 6
+      Text = 'Add Artist Collections...'
+      OnClick = AddArtistButtonClick
+    end
+  end
   object CollectionBar: TLayout
     Align = Top
     Padding.Left = 6.000000000000000000
@@ -37,7 +101,7 @@ object AssetsForm: TAssetsForm
       Align = Left
       CanFocus = False
       Position.X = 76.000000000000000000
-      Size.Width = 240.000000000000000000
+      Size.Width = 380.000000000000000000
       Size.Height = 30.000000000000000000
       Size.PlatformDefault = False
       TabOrder = 1
@@ -77,18 +141,6 @@ object AssetsForm: TAssetsForm
       TabOrder = 5
       Text = 'Add New Asset Collection...'
       OnClick = AddCollectionButtonClick
-    end
-    object AddArtistButton: TButton
-      Align = Right
-      CanFocus = False
-      Margins.Right = 6.000000000000000000
-      Position.X = 708.000000000000000000
-      Size.Width = 190.000000000000000000
-      Size.Height = 30.000000000000000000
-      Size.PlatformDefault = False
-      TabOrder = 6
-      Text = 'Add Artist Collections...'
-      OnClick = AddArtistButtonClick
     end
   end
   object GroupsBox: TVertScrollBox
@@ -289,9 +341,24 @@ object AssetsForm: TAssetsForm
       Text = 'Rename Collection...'
       OnClick = RenameCollectionItemClick
     end
+    object MoveCollectionItem: TMenuItem
+      Text = 'Move to Artist'
+    end
     object DeleteCollectionItem: TMenuItem
       Text = 'Delete Collection'
       OnClick = DeleteCollectionItemClick
+    end
+  end
+  object ArtistMenu: TPopupMenu
+    Left = 40
+    Top = 568
+    object RenameArtistItem: TMenuItem
+      Text = 'Rename Artist...'
+      OnClick = RenameArtistItemClick
+    end
+    object DeleteArtistItem: TMenuItem
+      Text = 'Delete Artist'
+      OnClick = DeleteArtistItemClick
     end
   end
   object IconDialog: TOpenDialog
