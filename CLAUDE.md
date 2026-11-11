@@ -5,13 +5,14 @@ the owner works, the rules for the code, and where the work has got to.
 `README.md` describes the program for its users and developers; this file
 is for Claude. Read both.
 
-Last updated: 11 November 2026, 13:05.
+Last updated: 11 November 2026, 13:20.
 
 ## Starting a new conversation
 
 1. Clone the repository with its submodules:
    `git clone --recurse-submodules https://github.com/peardox/Sprite3DBuilder.git`
-   (branch `main`). The submodules are `delphi-neon` and `FastMM5`.
+   (branch `main`). The submodules are `delphi-neon`, `FastMM5` and
+   `imaginglib` (the Vampyre Imaging Library, added 11 November 2026).
 2. Read the whole of `README.md`, then this file.
 3. Sprite3DBuilder grew out of Sprite3D (<https://github.com/peardox/Sprite3D>),
    whose `CLAUDE.md` holds the history and the lessons behind the code kept
@@ -29,6 +30,8 @@ Reference for the libraries used:
   notes at <https://peardox.com/G3D/>.
 - Neon, the JSON serialiser: <https://github.com/paolo-rossi/delphi-neon>.
 - FastMM5: <https://github.com/pleriche/FastMM5>.
+- Vampyre Imaging Library: <https://github.com/galfar/imaginglib>; its
+  formats and options are in `Source/ImagingOptions.inc`.
 - PasDoc: <https://pasdoc.github.io/>.
 
 ## How the owner works
@@ -88,7 +91,7 @@ line with peardox/SRDelphiFMX's on 8 November 2026).
 
 - Honour `.gitignore`, `.gitmodules` and the other `.git*` files. Never add
   build output or other ignored files.
-- Neon and FastMM5 are submodules: never copy their sources into the
+- Neon, FastMM5 and Vampyre (`imaginglib`) are submodules: never copy their sources into the
   project, and never change them.
 - **Spritely is not here.** It is Sprite3D's: build and install its
   packages from Sprite3D's group project. Sprite3DBuilder uses the built
@@ -137,7 +140,7 @@ line with peardox/SRDelphiFMX's on 8 November 2026).
 - **No trademarks in names, UI, logs, comments or docs** (owner,
   8 November 2026): describe what a thing is, never name it after a
   product or game that used it (Spritely's projection kinds are named for
-  the projection). Names of the libraries used (Gorilla3D, Neon, FastMM5)
+  the projection). Names of the libraries used (Gorilla3D, Neon, FastMM5, Vampyre)
   and of the platforms are fine. A model kit's name (KayKit) is fine in
   conversation and in the README's notes on testing, never in code names.
 
@@ -370,8 +373,9 @@ gone up.
 
 Read this first; the dated entries below it are the history.
 
-- **GitHub `main` is at `d9c4f15`** ("obj import fixed", 05:47), which has
-  Builder3zi's work. **Builder3zj** follows it: **Rescan All Collections**
+- **GitHub `main` is at `e593757`** ("Vampyre", 13:08): Builder3zj,
+  `2026-11-11-1305-zip-naming-rule.zip` and the `imaginglib` submodule (at
+  `484feed`), checked file by file. **Builder3zj** had: **Rescan All Collections**
   on the artist's **...** menu (`RescanArtistItemClick`: every collection
   of the artist shown queued through `NextBulk` with `FBulkRescan`, so
   `OpenCollection(Id, True)` scans each again); a **session error log**,
@@ -389,25 +393,116 @@ Read this first; the dated entries below it are the history.
   work*); the first is `2026-11-11-1305-zip-naming-rule.zip`, which
   follows Builder3zj. "Builder4" is still the name of the stage that
   places models on the level, not of a zip.
-- **Next: textures that are not where the model says.** The owner's import
-  of Zerin's packs (11 November, 06:05) failed 529 models, all with
-  `AssetsManager.TextureAsset - unsupported file format ".psd"`, and all in
-  the four packs imported as text glTF (Retro-Atlantis 104 of 110, Cave 178
-  of 180, Clocktower 129 of 132, Pyramid 118 of 124); every `.glb` pack
-  loaded. Gorilla3D rejects a texture by its extension. The owner says such
-  models often name `x.psd` where the file is `x.png`, and that names can
-  differ a little too. Plan, agreed in outline, waiting on a sample
-  `.gltf` and a listing of its folder from the owner: resolve each image a
-  `.gltf` names (as named if it is there and readable; else the same base
-  name, case ignored and URL-decoded, with an extension Gorilla3D reads;
-  else one unambiguous near match; log each), and when anything had to be
-  resolved, load a fixed copy of the `.gltf` written into the cache, never
-  touching the pack; the content key hashes the files actually used. Only
-  if some pack ships nothing but PSDs: convert them with the **Vampyre
-  Imaging Library** (`github.com/galfar/imaginglib`, MPL 2.0, pure Pascal,
-  `Extensions/ImagingPsd.pas` reads the flattened image, 8 or 16 bit,
-  `Extensions/ImagingFmx.pas` makes an FMX `TBitmap`), as a submodule, with
-  `docs/licences-required.md` and the README's Licences updated.
+- **Textures, `2026-11-11-1320-psd-textures-vampyre.zip`** (follows
+  `2026-11-11-1305-zip-naming-rule.zip`). The owner's import of Zerin's
+  packs failed 529 models, all `AssetsManager.TextureAsset - unsupported
+  file format ".psd"`, all in the four text-glTF packs (Retro-Atlantis,
+  Cave, Clocktower, Pyramid); every `.glb` pack loaded. Gorilla3D rejects a
+  texture by its extension. The `.gltf` files name PSDs that are there
+  (`atlas_retroAtlantis_varB_v00.psd`, `atlas_retroAtlantis_props_v00.psd`),
+  some with no PNG of any similar name, so guessing names cannot work. The
+  owner's rules: a **general** fix, not tied to any pack; **the extension
+  asked for is used whenever possible**: the file named first (converted if
+  need be), a file of the same name with another extension only if the one
+  named is not there or cannot be read. Built as
+  `src/lib/Sprite3DModelTextures.pas` (`PrepareModelTextures`, called from
+  `TAssetsForm.LoadEntryModel`, reported by `ReportTextures`): PNG and JPEG
+  used as they are, anything else made a PNG (8 bits a channel, alpha) by
+  the **Vampyre Imaging Library**, the `imaginglib` submodule (owner added
+  it, 13:07), in `<cache>/textures/<sha256 of source>.png`; if anything was
+  changed, the model is loaded from `<cache>/models/<key>.gltf`.
+  **Gorilla3D does not take a full path in a glTF `uri`**: the owner's
+  first test (13:12) failed with `buffer file "E:\...\x.bin" not found
+  (model "...\thumbnails\models\<key>.gltf")`, the file being there. It
+  looks for every file in the glTF's own folder. So
+  `2026-11-11-1325-gltf-copy-files-beside.zip` copies every file the copy
+  names (buffers, textures used as they are, PNGs made) into
+  `<cache>/models`, named after the SHA-256 of its content (`CopyIn`; a
+  PNG made, after its source), and every uri is a bare file name. The
+  `<cache>/textures` folder of the first try is not used.
+- **Black textures, `2026-11-11-1340-psd-alpha-remake-thumbnails.zip`**
+  (follows `2026-11-11-1325-gltf-copy-files-beside.zip`). With the copy
+  loading (13:21), the PSD textures came out black with coloured specks:
+  Vampyre's `ImagingPsd` takes any channel after the colour ones for alpha,
+  but in a PSD those are saved selections and masks unless the layer count
+  is negative (then the first is the merged image's transparency). Alpha 0
+  became black through FMX's premultiplied bitmaps. `MergedAlpha` in
+  `Sprite3DModelTextures` reads the layer count (layer info, or the
+  `Lr16`/`Lr32`/`Layr` tagged block at 16/32 bits; 8-byte lengths for
+  `.psb`) and `MakePng` saves opaque RGB unless it is negative. Made PNGs
+  are named `<sha>.v2.png` (`MADE_PNG_VERSION`), so the bad ones are never
+  used; bump it whenever conversion changes. Thumbnails already made stay
+  cached, so the zip adds **Remake Thumbnails** (collection menu) and
+  **Remake All Thumbnails** (artist menu): `OpenCollection(Id, True, True)`
+  sets `FRemaking`, which `HashesDone` uses to ignore the cache; the artist
+  one shares `StartArtistRun` with Rescan All Collections (`FBulkRemake`).
+- **Preview background, `2026-11-11-1350-preview-background.zip`**
+  (follows `2026-11-11-1340-psd-alpha-remake-thumbnails.zip`; owner: the
+  checker does not always work, add black and a way to choose). A
+  drop-down over the preview's top right (`FBackgroundCombo`): Checker,
+  Black, Grey, White (`PREVIEW_BACKGROUNDS`), shown through
+  `TSprite3DBackground` (Transparent or Solid); kept as
+  `previewBackground` in `settings.json` (`TSprite3DAppSettings`), passed in
+  by the main form's `OpenLibrary` and saved through `OnPreviewBackground`.
+  The floor grid turns light on black and grey (`PreviewGridColour`).
+  Thumbnails are unaffected: always grabbed transparent.
+- **24-bit PNGs, `2026-11-11-1400-png-always-argb.zip`** (follows
+  `2026-11-11-1350-preview-background.zip`). The opaque PNGs of the alpha
+  fix were saved as 24-bit RGB, and FMX's OpenGL context on Windows would
+  not make textures of them: `cannot create texture by
+  TContextOpenGLWindows (Error = 1282)` (owner, 13:30). `MakePng` now goes
+  through `ifR8G8B8` (dropping the extra channels) and back to
+  `ifA8R8G8B8` (Vampyre sets alpha 255), so every PNG made is 32-bit;
+  `MADE_PNG_VERSION` is `.v3`. Rule: **never hand the loader a 24-bit
+  PNG.**
+- **Thumbnail check, `2026-11-11-1410-check-thumbnails.zip`** (follows
+  `2026-11-11-1400-png-always-argb.zip`; owner: there may be other problems
+  we cannot see; a thumbnail completely transparent is a problem, almost
+  completely transparent may be; a log is enough to start with, triggered
+  from the File menu for now). **File, Check Thumbnails**
+  (`TMainForm.CheckThumbnailsItemClick`, through `EnsureAssetsForm`, which
+  `OpenLibrary` now uses too) calls `TAssetsForm.CheckThumbnails`: every
+  model of every collection, each key measured once (`MeasureVisible`:
+  share of pixels with alpha >= `CHECK_VISIBLE_ALPHA` (32), and the highest
+  alpha); verdicts missing, empty (0 visible), nearly empty (<
+  `CHECK_NEARLY_EMPTY`, 1%), good. Report `library-thumbnail-check.log`
+  (`ThumbnailCheckFile`), worst first; summary to the Debug tab. Main
+  thread, `ProcessMessages` every 50. The thresholds are guesses: tune
+  them from the owner's first report.
+- **Textures in other folders, `2026-11-11-1420-texture-search-wider.zip`**
+  (follows `2026-11-11-1410-check-thumbnails.zip`). A Quaternius Godot
+  model (`...\Medieval\Meshes\10_Beehive.gltf`) names `Cards_Atlas.png`,
+  which is not beside it. `ResolveTexture` now searches, after the file
+  named: the same file name (case ignored), then only after that the same
+  name with another extension, each nearest first through `TextureSearch`:
+  the folder named and the model's, then the tree of each of the model
+  folder's parents up to `SEARCH_LEVELS_UP` (3), never one
+  `TooHighToSearch` (a disk's root or a folder in it), nor a tree of more
+  than `TREE_FILE_LIMIT` (100,000) files. `FolderImages` lists image files
+  (`IsImageFile`: PNG, JPEG or anything Vampyre reads) and keeps each
+  listing `LISTING_KEEP_MS` (5 minutes) in the unit's `Listings`, freed in
+  its finalization. `ReportTextures` gives full paths of files found
+  elsewhere.
+- **Choosing a pack's folders, `2026-11-11-1430-artist-import-choose-folders.zip`**
+  (follows `2026-11-11-1420-texture-search-wider.zip`). The owner found the
+  real cause of the Beehive error: Quaternius's Card Kit holds sample
+  engine projects whose glTFs name textures kept elsewhere, and the artist
+  import took those folders along with the pack's own. Owner's rule: when
+  a pack has more than one folder of the format taken, ask which; tick the
+  one with the most models; with only one, just proceed. In
+  `AddArtistButtonClick`, the folders of format `Pick` (`SameFormat`) go to
+  `ChooseModelFolders` when there are two or more, with new optional
+  parameters: an introduction naming the pack, `ATickLargest`
+  (`TImportForm.FTickLargest`: of those `DefaultModelFolders` ticks, only
+  the biggest) and Skip as the cancel text; Skip passes the pack over
+  (`NotChosen`, in the summary). The wider texture search stays: it costs
+  nothing when textures are where they are named. The owner will clear
+  the library by hand to test. Only glTF for now: OBJ's `.mtl` and
+  FBX are loaded as they are. Licence: `licences/Vampyre-LICENSE.txt` (a
+  notice with the source address, then the MPL 2.0), in File, Licences and
+  `docs/licences-required.md`. Project: Vampyre's four folders on the search
+  path and `DONT_LINK_JPEG2000` defined (its C objects exist for only some
+  platforms).
 - The owner's log of that import stops in Retro-Winter, after
   `deco_winter_end ... loaded in 18 ms` with no grab: ask whether it was cut
   short when pasted or the program stalled there.

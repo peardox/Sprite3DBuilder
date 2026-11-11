@@ -1,7 +1,7 @@
 # Licences required
 
 What the third-party parts of Sprite3DBuilder ask of anyone who builds or
-distributes it, as of 10 November 2026. This is a map of what to check, not
+distributes it, as of 11 November 2026. This is a map of what to check, not
 legal advice.
 
 The licences and notices a release must carry are text files in
@@ -33,6 +33,25 @@ Copyright (c) 2015 Paolo Rossi, reads and writes `settings.json`.
 - Keep its copyright and licence notice with every copy; for a binary, in its
   documentation or About box. **Done:** `licences/Neon-LICENSE.txt`, in File,
   Licences.
+
+## Vampyre Imaging Library: Mozilla Public License 2.0
+
+The Vampyre Imaging Library (the `imaginglib` submodule,
+<https://github.com/galfar/imaginglib>), by Marek Mauder, reads textures in
+formats the model loader does not read, such as layered `.psd` files, in
+`src/lib/Sprite3DModelTextures.pas`. It is compiled into every build, used
+unmodified.
+
+The MPL 2.0 is a file-level copyleft: it covers Vampyre's own files only,
+not Sprite3DBuilder's.
+
+- Distributing a binary: tell its recipients how to get the Source Code Form
+  of the MPL files, and carry the licence. **Done:**
+  `licences/Vampyre-LICENSE.txt` (a notice giving the source's address, then
+  the licence), in File, Licences.
+- Changing any of Vampyre's files would mean making the changed files
+  available under the MPL; so leave the submodule unchanged, as the rules
+  for submodules say.
 
 ## Spritely: Sprite3D's
 

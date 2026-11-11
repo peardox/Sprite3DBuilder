@@ -9,6 +9,11 @@
 //** hold the same models as one already ticked (DefaultModelFolders); the boxes can then be
 //** changed freely. OK needs at least one ticked.
 //**
+//** An artist import asks it only when a pack has more than one folder of the format chosen,
+//** listing those alone, with an introduction naming the pack, Skip in place of Cancel, and
+//** only the folder with the most models ticked to start with: a pack can hold sample
+//** projects with models of their own, which name textures kept elsewhere.
+//**
 //** Modal; desktop only, as the folder dialogs that lead to it are. For the main thread only.
 unit Sprite3DBuilderImportForm;
 
@@ -69,7 +74,11 @@ type
     FFormats: TArray<String>;
     //** @abstract(True while the boxes are being ticked in code.)
     FTicking: Boolean;
-    //** @abstract(Ticks the folders DefaultModelFolders takes for format AFormat.)
+    //** @abstract(True to tick only the folder with the most models of those
+    //** DefaultModelFolders takes.)
+    FTickLargest: Boolean;
+    //** @abstract(Ticks the folders DefaultModelFolders takes for format AFormat, or, with
+    //** FTickLargest, the one of them with the most models.)
     //**
     //** @param(AFormat The format.)
     procedure TickFormat(const AFormat: String);
@@ -89,10 +98,17 @@ type
 //**
 //** @param(AChosen On return, the folders to take.)
 //**
+//** @param(AIntro What the dialog says at the top; empty for the usual words.)
+//**
+//** @param(ATickLargest True to tick only the folder with the most models to start with.)
+//**
+//** @param(ACancelText The Cancel button's text; empty for Cancel.)
+//**
 //** @returns(True if there are folders to take; False if there were none, or Cancel.)
 function ChooseModelFolders(const ARoots: TArray<String>;
   const AFolders: TArray<TModelFolder>; var APreferred: String;
-  out AChosen: TArray<TModelFolder>): Boolean;
+  out AChosen: TArray<TModelFolder>; const AIntro: String = '';
+  const ATickLargest: Boolean = False; const ACancelText: String = ''): Boolean;
 
 implementation
 
@@ -126,7 +142,8 @@ end;
 
 function ChooseModelFolders(const ARoots: TArray<String>;
   const AFolders: TArray<TModelFolder>; var APreferred: String;
-  out AChosen: TArray<TModelFolder>): Boolean;
+  out AChosen: TArray<TModelFolder>; const AIntro: String; const ATickLargest: Boolean;
+  const ACancelText: String): Boolean;
 var
   Dialog: TImportForm;
   Item: TListBoxItem;
@@ -144,10 +161,16 @@ begin
   try
     Dialog.FFolders := AFolders;
     Dialog.FFormats := FoundModelFormats(AFolders);
-    Dialog.InfoLabel.Text := Format('Models were found in %d places under %s. A pack often ' +
-      'has the same models in several formats, each in its own folder: tick the ones to ' +
-      'take, usually one format only.', [Length(AFolders),
-      String.Join(', ', ARoots)]);
+    Dialog.FTickLargest := ATickLargest;
+    if AIntro <> String.Empty then
+      Dialog.InfoLabel.Text := AIntro
+    else
+      Dialog.InfoLabel.Text := Format('Models were found in %d places under %s. A pack ' +
+        'often has the same models in several formats, each in its own folder: tick the ' +
+        'ones to take, usually one format only.', [Length(AFolders),
+        String.Join(', ', ARoots)]);
+    if ACancelText <> String.Empty then
+      Dialog.CancelButton.Text := ACancelText;
     Dialog.FormatCombo.Clear;
     Chosen := 0;
     for var I := 0 to High(Dialog.FFormats) do
@@ -192,8 +215,19 @@ end;
 procedure TImportForm.TickFormat(const AFormat: String);
 var
   Ticks: TArray<Boolean>;
+  Largest: Integer;
 begin
   Ticks := DefaultModelFolders(FFolders, AFormat);
+  // Only the biggest of them, when asked: the likeliest to be the pack itself
+  if FTickLargest then
+  begin
+    Largest := -1;
+    for var I := 0 to High(Ticks) do
+      if Ticks[I] and ((Largest < 0) or (FFolders[I].Count > FFolders[Largest].Count)) then
+        Largest := I;
+    for var I := 0 to High(Ticks) do
+      Ticks[I] := I = Largest;
+  end;
   FTicking := True;
   try
     for var I := 0 to FolderList.Count - 1 do

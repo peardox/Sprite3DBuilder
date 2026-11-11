@@ -39,6 +39,8 @@
 //** MainMenu1
 //** |-- FileMenu "File"
 //** |   |-- LibraryItem "Library..."   the collections of models; desktop only
+//** |   |-- ClearLibraryItem "Clear Library..."  deletes the library; desktop only
+//** |   |-- CheckThumbnailsItem "Check Thumbnails"  reports empty thumbnails; desktop only
 //** |   |-- SettingsMenuItem "Settings..."  opens the general settings dialog
 //** |   |-- LicencesMenuItem "Licences..."  the third-party licences, from the program's resources
 //** |   |-- FileSeparatorItem "-"
@@ -119,6 +121,8 @@ unit Sprite3DBuilderMain;
     MainMenu1
     |-- FileMenu "File"
     |   |-- LibraryItem "Library..."   the collections of models; desktop only
+    |   |-- ClearLibraryItem "Clear Library..."  deletes the library; desktop only
+    |   |-- CheckThumbnailsItem "Check Thumbnails"  reports empty thumbnails; desktop only
     |   |-- SettingsMenuItem "Settings..."  opens the general settings dialog
     |   |-- LicencesMenuItem "Licences..."  the third-party licences, from the program's resources
     |   |-- FileSeparatorItem "-"
@@ -223,6 +227,9 @@ type
     //** @abstract(The "Clear Library..." item, after Library; see ClearLibraryItemClick.
     //** Desktop only, as Library is.)
     ClearLibraryItem: TMenuItem;
+    //** @abstract(The "Check Thumbnails" item, after Clear Library; see
+    //** CheckThumbnailsItemClick. Desktop only, as Library is.)
+    CheckThumbnailsItem: TMenuItem;
     //** @abstract(The File menu's "Licences..." item; see LicencesMenuItemClick.)
     LicencesMenuItem: TMenuItem;
     //** @abstract(The "Settings..." item; see SettingsMenuItemClick.)
@@ -429,6 +436,16 @@ type
     //**
     //** @param(Sender ClearLibraryItem.)
     procedure ClearLibraryItemClick(Sender: TObject);
+    //** @abstract(Checks every thumbnail in the library for ones with nothing, or almost
+    //** nothing, in them (TAssetsForm.CheckThumbnails), without showing the Library; the
+    //** summary goes to the Debug tab, the list to the report it names.)
+    //**
+    //** @param(Sender CheckThumbnailsItem.)
+    procedure CheckThumbnailsItemClick(Sender: TObject);
+    //** @abstract(Makes the Library, TAssetsForm, if it has not been made, without showing
+    //** it: told the settings it needs, and where to send its log and its choice of
+    //** preview background.)
+    procedure EnsureAssetsForm;
     //** @abstract(Shows the third-party licences and notices the program carries, from its
     //** own resources: TLicencesForm, by ShowLicences.)
     //**
@@ -1181,6 +1198,7 @@ begin
   // Library, nor a cache of its thumbnails to clear
   LibraryItem.Free;
   ClearLibraryItem.Free;
+  CheckThumbnailsItem.Free;
   // Built from the finished menus, so it comes after every item is added
   BuildMobileMenu;
   {$ENDIF}
@@ -1816,7 +1834,7 @@ begin
   OpenLibrary;
 end;
 
-procedure TMainForm.OpenLibrary;
+procedure TMainForm.EnsureAssetsForm;
 begin
   if FAssetsForm = nil then
   begin
@@ -1828,8 +1846,29 @@ begin
           DebugMemo.Lines.Add(AText);
       end;
     FAssetsForm.MigrationFolder := OSFriendlyPath(FSettings.AssetFolder);
+    FAssetsForm.PreviewBackground := FSettings.PreviewBackground;
+    // Kept as soon as it is chosen
+    FAssetsForm.OnPreviewBackground :=
+      procedure(const AKey: String)
+      begin
+        if MainFormGone then
+          Exit;
+        FSettings.PreviewBackground := AKey;
+        try
+          FSettings.Save;
+        except
+          on E: Exception do
+            DebugMemo.Lines.Add('Can''t save the settings to ' + FSettings.FileName + ': ' +
+              E.Message);
+        end;
+      end;
   end;
   FAssetsForm.GridSize := FSettings.GridSize;
+end;
+
+procedure TMainForm.OpenLibrary;
+begin
+  EnsureAssetsForm;
   FAssetsForm.ShowLibrary;
 end;
 
@@ -1848,6 +1887,13 @@ begin
     ASSET_PALETTE_FILE_NAME)) then
     OpenLibrary;
   {$ENDIF}
+end;
+
+procedure TMainForm.CheckThumbnailsItemClick(Sender: TObject);
+begin
+  EnsureAssetsForm;
+  TabControl1.ActiveTab := DebugTab;
+  FAssetsForm.CheckThumbnails;
 end;
 
 // Asks first, as the thumbnails take a while to make again

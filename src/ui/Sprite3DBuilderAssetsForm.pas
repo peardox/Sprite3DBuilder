@@ -84,9 +84,9 @@
 //** |-- GroupMenu         TPopupMenu: AddGroupItem, RenameGroupItem, IconGroupItem,
 //** |                     DeleteGroupItem
 //** |-- CollectionMenu    TPopupMenu: RenameCollectionItem, MoveCollectionItem,
-//** |                     DeleteCollectionItem
+//** |                     RemakeThumbnailsItem, DeleteCollectionItem
 //** |-- ArtistMenu        TPopupMenu: RenameArtistItem, RescanArtistItem,
-//** |                     DeleteArtistItem
+//** |                     RemakeArtistItem, DeleteArtistItem
 //** `-- IconDialog        TOpenDialog, for Change Icon
 //** )
 unit Sprite3DBuilderAssetsForm;
@@ -160,13 +160,19 @@ uses
   FMX.Types, FMX.Controls, FMX.Forms, FMX.Graphics, FMX.StdCtrls, FMX.Layouts,
   FMX.Objects, FMX.Controls.Presentation, FMX.Types3D, FMX.Menus, FMX.Dialogs, FMX.ListBox,
   Gorilla.Viewport, Gorilla.Model, Gorilla.Camera, Spritely.OrbitalCamera,
-  Sprite3DOffscreen, Sprite3DAssetCache, Sprite3DBackground, Sprite3DGrid;
+  Sprite3DOffscreen, Sprite3DAssetCache, Sprite3DBackground, Sprite3DGrid,
+  Sprite3DModelTextures;
 
 type
   //** @abstract(Receives a line for the log; see TAssetsForm.OnLog.)
   //**
   //** @param(AText The line.)
   TAssetsLogEvent = reference to procedure(const AText: String);
+
+  //** @abstract(Receives the preview background chosen; see TAssetsForm.OnPreviewBackground.)
+  //**
+  //** @param(AKey Its key: @code(checker), @code(black), @code(grey) or @code(white).)
+  TAssetsBackgroundEvent = reference to procedure(const AKey: String);
 
   //** @abstract(One model's key, the files it names, and why it has none, as the hashing
   //** worker hands them back.)
@@ -245,6 +251,9 @@ type
     //** @abstract(Rescan All Collections: every collection of the artist shown read again
     //** and its thumbnails made, one after another, as an artist import does.)
     RescanArtistItem: TMenuItem;
+    //** @abstract(Remake All Thumbnails: as Rescan All Collections, but every thumbnail is
+    //** made again, cached or not.)
+    RemakeArtistItem: TMenuItem;
     //** @abstract(Delete Artist: the artist and their collections, from the library.)
     DeleteArtistItem: TMenuItem;
     //** @abstract(Add Artist...: a new artist, by name.)
@@ -271,6 +280,9 @@ type
     RenameCollectionItem: TMenuItem;
     //** @abstract(Delete Collection: from the library; its models and thumbnails stay.)
     DeleteCollectionItem: TMenuItem;
+    //** @abstract(Remake Thumbnails: the collection's folders read again and every
+    //** thumbnail made again, cached or not, as after a fix to how models are loaded.)
+    RemakeThumbnailsItem: TMenuItem;
     //** @abstract(Move to Artist: a sub-menu of the other artists, made as CollectionMenu
     //** opens; choosing one puts the collection under them.)
     MoveCollectionItem: TMenuItem;
@@ -435,6 +447,16 @@ type
     //**
     //** @param(Sender RescanArtistItem.)
     procedure RescanArtistItemClick(Sender: TObject);
+    //** @abstract(As RescanArtistItemClick, but every thumbnail of every collection of the
+    //** artist shown is made again, cached or not.)
+    //**
+    //** @param(Sender RemakeArtistItem.)
+    procedure RemakeArtistItemClick(Sender: TObject);
+    //** @abstract(Reads the collection's folders again and makes every thumbnail again,
+    //** cached or not.)
+    //**
+    //** @param(Sender RemakeThumbnailsItem.)
+    procedure RemakeThumbnailsItemClick(Sender: TObject);
     //** @abstract(Asks, then takes the artist and their collections out of the library.)
     //**
     //** @param(Sender DeleteArtistItem.)
@@ -571,6 +593,18 @@ type
     FFolderTiles: TArray<TRectangle>;
     //** @abstract(Says "Model Preview" over the viewport while it shows no model.)
     FPreviewLabel: TLabel;
+    //** @abstract(Over the preview's top right corner: what the preview shows behind the
+    //** model, one item for each of PREVIEW_BACKGROUNDS.)
+    FBackgroundCombo: TComboBox;
+    //** @abstract(True while FBackgroundCombo is set from code, so its change is not a
+    //** choice.)
+    FSettingBackground: Boolean;
+    //** @abstract(Backing field for PreviewBackground.)
+    FPreviewBackground: String;
+    //** @abstract(Backing field for OnPreviewBackground.)
+    FOnPreviewBackground: TAssetsBackgroundEvent;
+    //** @abstract(True while CheckThumbnails runs.)
+    FChecking: Boolean;
     //** @abstract(Behind the viewport: a checker, standing for transparency. Never in a
     //** thumbnail: the off-screen pass draws into a buffer of its own.)
     FBackground: TSprite3DBackground;
@@ -609,6 +643,11 @@ type
     //** @abstract(True while the run of collections under way is a Rescan All Collections:
     //** each one's folders are read again, not opened from what was saved.)
     FBulkRescan: Boolean;
+    //** @abstract(True while the run of collections under way remakes every thumbnail.)
+    FBulkRemake: Boolean;
+    //** @abstract(True from OpenCollection until HashesDone when every thumbnail of the
+    //** collection is to be made again, the cache's ignored.)
+    FRemaking: Boolean;
     //** @abstract(How many errors have gone to the error log since the last artist import
     //** or rescan began, for its summary.)
     FRunErrors: Integer;
@@ -702,7 +741,16 @@ type
     //** @param(AId The collection's id; empty shows no collection.)
     //**
     //** @param(ARescan True to read its folders again even if they have been scanned.)
-    procedure OpenCollection(const AId: String; const ARescan: Boolean = False);
+    //**
+    //** @param(ARemake True to make every thumbnail again, cached or not; its folders are
+    //** read again too.)
+    procedure OpenCollection(const AId: String; const ARescan: Boolean = False;
+      const ARemake: Boolean = False);
+    //** @abstract(Rescans every collection of the artist shown, one after another, making
+    //** every thumbnail again if ARemake; see RescanArtistItemClick.)
+    //**
+    //** @param(ARemake True to make every thumbnail again, cached or not.)
+    procedure StartArtistRun(const ARemake: Boolean);
     //** @abstract(Reads the open collection's folders: every model hashed on a worker
     //** thread, then shown, its groups kept.)
     procedure ScanCollection;
@@ -1217,6 +1265,29 @@ type
     //**
     //** @returns(True if it loaded; False, with the reason logged and FModel nil, if not.)
     function LoadEntryModel(const AIndex: Integer): Boolean;
+    //** @abstract(Says what was done with each texture of a model that was not used as it
+    //** is: a PNG made, or another file of the same name used, on the Debug tab and in the
+    //** import log; one that could not be found or read goes to the error log too.)
+    //**
+    //** @param(AModel The model's name.)
+    //**
+    //** @param(AFixes Its textures, from PrepareModelTextures.)
+    procedure ReportTextures(const AModel: String; const AFixes: TArray<TSprite3DTextureFix>);
+    //** @abstract(Shows the background chosen in FBackgroundCombo behind the preview, and
+    //** hands its key to OnPreviewBackground.)
+    //**
+    //** @param(Sender FBackgroundCombo.)
+    procedure BackgroundComboChange(Sender: TObject);
+    //** @abstract(Setter for PreviewBackground: shows it behind the preview and in
+    //** FBackgroundCombo; an unknown key is taken as @code(checker).)
+    //**
+    //** @param(Value The key.)
+    procedure SetPreviewBackground(const Value: String);
+    //** @abstract(The preview's floor grid's colour, dark on a light background and light on
+    //** a dark one.)
+    //**
+    //** @returns(The colour.)
+    function PreviewGridColour: TAlphaColor;
     //** @abstract(Puts the camera back in the thumbnails' view: isometric, orthographic.)
     procedure ResetCameraAngles;
     //** @abstract(Starts making the next queued thumbnail, or says all are made and
@@ -1364,6 +1435,24 @@ type
     //** artist import. What was done goes to OnLog. The model files are never touched. The
     //** last folder chosen and the preferred format are kept.
     procedure ClearLibrary;
+    //** @abstract(Checks the thumbnail of every model of every collection, and writes what
+    //** it finds to ThumbnailCheckFile, worst first.)
+    //**
+    //** A thumbnail is grabbed with a transparent background, so one with nothing in it is
+    //** a model that did not draw: each one's share of visible pixels (alpha
+    //** CHECK_VISIBLE_ALPHA or more) is measured. None visible is @italic(empty), a problem;
+    //** less than CHECK_NEARLY_EMPTY of the picture is @italic(nearly empty), to look into,
+    //** as a thin model can be that small; a model with no thumbnail is @italic(missing).
+    //** Every model so listed has its share, the highest alpha in its thumbnail, its artist
+    //** and collection, and its file. A summary goes to OnLog. Thumbnails are only read;
+    //** the window stays responsive meanwhile, and a second check while one runs is
+    //** ignored.
+    procedure CheckThumbnails;
+    //** @abstract(The report of the last CheckThumbnails, in the settings folder; written
+    //** afresh by each check.)
+    //**
+    //** @returns(The file's path.)
+    class function ThumbnailCheckFile: String; static;
     //** @abstract(Every model shown, in name order.)
     property Entries: TArray<TAssetEntry> read FEntries;
     //** @abstract(The entry selected, or -1.)
@@ -1376,6 +1465,14 @@ type
     //** @abstract(The level's grid spacing, for the preview's floor grid; 2 to start with.
     //** Set before ShowLibrary.)
     property GridSize: Single read FGridSize write FGridSize;
+    //** @abstract(What the model preview shows behind the model: @code(checker), standing
+    //** for transparency, @code(black), @code(grey) or @code(white); set before ShowLibrary,
+    //** and by the drop-down over the preview. Thumbnails are always grabbed with a
+    //** transparent background, whatever it is.)
+    property PreviewBackground: String read FPreviewBackground write SetPreviewBackground;
+    //** @abstract(Called with the key of the background chosen over the preview, to keep it.)
+    property OnPreviewBackground: TAssetsBackgroundEvent read FOnPreviewBackground
+      write FOnPreviewBackground;
   end;
 
 
@@ -1457,6 +1554,15 @@ const
   IMPORT_LOG_FILE_NAME = 'library-import.log';
   //** @abstract(The error log's name, in the settings folder; see ErrorLogFile.)
   ERROR_LOG_FILE_NAME = 'library-errors.log';
+  //** @abstract(The thumbnail check's report's name, in the settings folder; see
+  //** TAssetsForm.ThumbnailCheckFile.)
+  THUMBNAIL_CHECK_FILE_NAME = 'library-thumbnail-check.log';
+  //** @abstract(The alpha, 0 to 255, from which a thumbnail's pixel counts as visible in
+  //** the thumbnail check; fainter ones are edges and haze.)
+  CHECK_VISIBLE_ALPHA = 32;
+  //** @abstract(The share of a thumbnail's pixels, 0 to 1, below which it is nearly empty
+  //** in the thumbnail check.)
+  CHECK_NEARLY_EMPTY = 0.01;
   //** @abstract(How a line of the logs starts: the time, to the millisecond.)
   LOG_TIME_FORMAT = 'yyyy-mm-dd hh:nn:ss.zzz';
   //** @abstract(The name of the file naming the model in the viewport; see LoadingFile.)
@@ -1467,8 +1573,15 @@ const
   UNASSIGNED_ARTIST = 'Unassigned';
   //** @abstract(The side of the preview's checker squares, in logical pixels.)
   PREVIEW_CHECKER_SIZE = 16;
-  //** @abstract(The preview's floor grid lines.)
+  //** @abstract(The preview's floor grid lines, on a light background and on a dark one.)
   PREVIEW_GRID_COLOUR = TAlphaColor($C0202020);
+  PREVIEW_GRID_COLOUR_LIGHT = TAlphaColor($C0B0B0B0);
+  //** @abstract(The preview's backgrounds, by the keys settings.json keeps, with their
+  //** names in the drop-down and, but for the checker, their colours.)
+  PREVIEW_BACKGROUNDS: array[0..3] of String = ('checker', 'black', 'grey', 'white');
+  PREVIEW_BACKGROUND_NAMES: array[0..3] of String = ('Checker', 'Black', 'Grey', 'White');
+  PREVIEW_BACKGROUND_COLOURS: array[0..3] of TAlphaColor = ($00000000, $FF000000,
+    $FF808080, $FFFFFFFF);
   //** @abstract(The fill of a group's tile in the grid, so it stands apart from models.)
   FOLDER_FILL = TAlphaColor($28FFFFFF);
 
@@ -1495,6 +1608,80 @@ end;
 procedure TAssetsAlive.Kill;
 begin
   FDead := True;
+end;
+
+type
+  //** @abstract(What the thumbnail check found for one thumbnail.)
+  TThumbnailVerdict = (
+    //** @abstract(The model has no thumbnail.)
+    tvMissing,
+    //** @abstract(No pixel is visible.)
+    tvEmpty,
+    //** @abstract(Some are, but fewer than CHECK_NEARLY_EMPTY of them.)
+    tvNearlyEmpty,
+    //** @abstract(Enough are.)
+    tvGood);
+
+  //** @abstract(One line of the thumbnail check's report.)
+  TThumbnailCheck = record
+    //** @abstract(What was found.)
+    Verdict: TThumbnailVerdict;
+    //** @abstract(The share of visible pixels, 0 to 1; 0 for one missing.)
+    Visible: Double;
+    //** @abstract(The highest alpha in the thumbnail, 0 to 255.)
+    MaxAlpha: Integer;
+    //** @abstract(The rest of the line: where the model is.)
+    Text: String;
+  end;
+
+//** @abstract(Measures how much of ABitmap is visible.)
+//**
+//** @param(ABitmap The thumbnail.)
+//**
+//** @param(AVisible On return, the share of its pixels with alpha CHECK_VISIBLE_ALPHA or
+//** more, 0 to 1.)
+//**
+//** @param(AMaxAlpha On return, its highest alpha, 0 to 255.)
+//**
+//** @returns(False if it could not be read.)
+function MeasureVisible(const ABitmap: TBitmap; out AVisible: Double;
+  out AMaxAlpha: Integer): Boolean;
+var
+  Data: TBitmapData;
+  Row: PAlphaColorArray;
+  Alpha, Count: Integer;
+  Direct: Boolean;
+begin
+  AVisible := 0;
+  AMaxAlpha := 0;
+  Result := False;
+  if (ABitmap.Width = 0) or (ABitmap.Height = 0) or
+    not ABitmap.Map(TMapAccess.Read, Data) then
+    Exit;
+  try
+    // Alpha is the top byte of each 32-bit pixel in both these orders
+    Direct := (Data.PixelFormat = TPixelFormat.BGRA) or (Data.PixelFormat = TPixelFormat.RGBA);
+    Count := 0;
+    for var Y := 0 to Data.Height - 1 do
+    begin
+      Row := Data.GetScanline(Y);
+      for var X := 0 to Data.Width - 1 do
+      begin
+        if Direct then
+          Alpha := Row[X] shr 24
+        else
+          Alpha := TAlphaColorRec(Data.GetPixel(X, Y)).A;
+        if Alpha > AMaxAlpha then
+          AMaxAlpha := Alpha;
+        if Alpha >= CHECK_VISIBLE_ALPHA then
+          Inc(Count);
+      end;
+    end;
+    AVisible := Count / (Data.Width * Data.Height);
+    Result := True;
+  finally
+    ABitmap.Unmap(Data);
+  end;
 end;
 
 //** @abstract(A length of time for people: 45s, 3m 05s, 1h 02m.)
@@ -1544,8 +1731,6 @@ end;
 { TAssetsForm }
 
 procedure TAssetsForm.FormCreate(Sender: TObject);
-var
-  Spec: TSprite3DBackgroundSpec;
 begin
   FAlive := TAssetsAlive.Create;
   FMaking := -1;
@@ -1587,15 +1772,26 @@ begin
   FPreviewLabel.HitTest := False;
   FPreviewLabel.BringToFront;
 
-  // A checker behind the view, as Sprite3D's transparent background, in
-  // squares to suit the small view
+  // Behind the view: a checker to start with, as Sprite3D's transparent
+  // background, or a colour, as the drop-down over the preview chooses
   FBackground := TSprite3DBackground.Create(nil);
   FBackground.AttachTo(FViewport);
-  Spec := TSprite3DBackgroundSpec.Default;
-  Spec.Kind := TSprite3DBackgroundKind.Transparent;
-  Spec.CheckerSize := PREVIEW_CHECKER_SIZE;
-  FBackground.Spec := Spec;
   FPreviewLabel.BringToFront;
+  FBackgroundCombo := TComboBox.Create(PreviewArea);
+  FBackgroundCombo.Parent := PreviewArea;
+  FBackgroundCombo.Width := 96;
+  FBackgroundCombo.Height := 24;
+  FBackgroundCombo.Anchors := [TAnchorKind.akTop, TAnchorKind.akRight];
+  FBackgroundCombo.Position.Point := TPointF.Create(PreviewArea.Width -
+    FBackgroundCombo.Width - 4, 4);
+  FBackgroundCombo.CanFocus := False;
+  for var Name in PREVIEW_BACKGROUND_NAMES do
+    FBackgroundCombo.Items.Add(Name);
+  FBackgroundCombo.Hint := 'What the preview shows behind the model';
+  FBackgroundCombo.ShowHint := True;
+  FBackgroundCombo.OnChange := BackgroundComboChange;
+  FBackgroundCombo.BringToFront;
+  SetPreviewBackground(PREVIEW_BACKGROUNDS[0]);
   FGridSize := 2;
 
   // The Spritely camera, as the main form's: orthographic, lit from the
@@ -1891,12 +2087,13 @@ begin
     Caption := 'Library';
 end;
 
-procedure TAssetsForm.OpenCollection(const AId: String; const ARescan: Boolean);
+procedure TAssetsForm.OpenCollection(const AId: String; const ARescan, ARemake: Boolean);
 var
   Results: TArray<TAssetHashResult>;
   Opened: TSprite3DAssetCollection;
 begin
   StopMaking;
+  FRemaking := ARemake;
   Inc(FScanId);
   FScanning := False;
   FEntries := nil;
@@ -1939,7 +2136,7 @@ begin
   SaveLibrary;
   FillCollections;
   Log('Assets: collection ' + FCollection.Name + ' opened');
-  if ARescan or not FCollection.Scanned or (Length(FCollection.Models) = 0) then
+  if ARescan or ARemake or not FCollection.Scanned or (Length(FCollection.Models) = 0) then
   begin
     ScanCollection;
     Exit;
@@ -2065,6 +2262,16 @@ begin
     Exit;
   AppendErrorLog('--- Rescan: ' + FCollection.Name);
   ScanCollection;
+end;
+
+procedure TAssetsForm.RemakeThumbnailsItemClick(Sender: TObject);
+begin
+  if FCollection.Id = String.Empty then
+    Exit;
+  StopBulk('thumbnails remade');
+  AppendErrorLog('--- Remake thumbnails: ' + FCollection.Name);
+  Log('Assets: making every thumbnail of ' + FCollection.Name + ' again');
+  OpenCollection(FCollection.Id, True, True);
 end;
 
 procedure TAssetsForm.CollectionMenuButtonClick(Sender: TObject);
@@ -2300,10 +2507,20 @@ begin
 end;
 
 procedure TAssetsForm.RescanArtistItemClick(Sender: TObject);
+begin
+  StartArtistRun(False);
+end;
+
+procedure TAssetsForm.RemakeArtistItemClick(Sender: TObject);
+begin
+  StartArtistRun(True);
+end;
+
+procedure TAssetsForm.StartArtistRun(const ARemake: Boolean);
 var
   At: Integer;
   Ids: TArray<String>;
-  Name: String;
+  Name, What: String;
 begin
   At := ArtistIndex(FArtistId);
   if At < 0 then
@@ -2318,20 +2535,25 @@ begin
     TDialogService.ShowMessage(Name + ' has no collections to rescan.');
     Exit;
   end;
+  if ARemake then
+    What := 'thumbnails remade'
+  else
+    What := 'rescanned';
   StopBulk('a rescan started');
-  StartImportLog(Format('Artist rescan: %s, %s', [Name,
-    CountText(Length(Ids), 'collection')]));
+  StartImportLog(Format('Artist %s: %s, %s', [IfThen(ARemake, 'thumbnails remade',
+    'rescan'), Name, CountText(Length(Ids), 'collection')]));
   FRunErrors := 0;
   // Each read again, one after another; the one open now is shown at the end
   FBulkRescan := True;
+  FBulkRemake := ARemake;
   FBulkQueue := Ids;
   FBulkTotal := Length(Ids);
   if (FCollection.Id <> String.Empty) and SameText(FCollection.ArtistId, FArtistId) then
     FBulkFirst := FCollection.Id
   else
     FBulkFirst := Ids[0];
-  FBulkSummary := Format('%s: %s rescanned.', [Name, CountText(Length(Ids), 'collection')]);
-  Log(Format('Assets: rescanning the %s of %s', [CountText(Length(Ids), 'collection'),
+  FBulkSummary := Format('%s: %s %s.', [Name, CountText(Length(Ids), 'collection'), What]);
+  Log(Format('Assets: %s, the %s of %s', [What, CountText(Length(Ids), 'collection'),
     Name]));
   NextBulk;
 end;
@@ -2440,8 +2662,9 @@ var
   CollectionName, Pick, Chosen, FirstId, Id, ArtistId, Folder: String;
   NewIds, Inside, FolderArtists, Rejected, Offered: TArray<String>;
   OnlyDefaults, Stopped: Boolean;
-  Added, NoModels, NoFormat, Existing: Integer;
-  Target, Title: String;
+  Added, NoModels, NoFormat, Existing, NotChosen: Integer;
+  Target, Title, PickCopy: String;
+  SameFormat, ChosenFolders: TArray<TModelFolder>;
 begin
   Target := BulkArtist;
   if Target = String.Empty then
@@ -2499,6 +2722,7 @@ begin
   NoModels := 0;
   NoFormat := 0;
   Existing := 0;
+  NotChosen := 0;
   CollectionBar.Enabled := False;
   ArtistBar.Enabled := False;
   try
@@ -2585,16 +2809,47 @@ begin
           Break;
         end;
       end;
-      // That format's folders, an engine's second copy left out
-      Ticks := DefaultModelFolders(Found, Pick);
+      // That format's folders, an engine's second copy left out; with more
+      // than one, as when a pack has sample projects with models of their
+      // own, the user chooses, the folder with the most models ticked
       Sources := nil;
-      for var I := 0 to High(Found) do
-        if Ticks[I] then
+      SameFormat := nil;
+      for var Item in Found do
+        if SameText(Item.Format, Pick) then
+          SameFormat := SameFormat + [Item];
+      if Length(SameFormat) > 1 then
+      begin
+        PickCopy := Pick;
+        if not ChooseModelFolders([Folder], SameFormat, PickCopy, ChosenFolders,
+          Format('%s has %s models in %d folders. Tick the ones to import; the one with ' +
+          'the most models is ticked, as the others are often sample projects or copies. ' +
+          'Skip passes over the pack.', [CollectionName, ModelFormatName(Pick),
+          Length(SameFormat)]), True, 'Skip') then
         begin
-          Source.Folder := Found[I].Folder;
-          Source.Formats := [Found[I].Format];
+          Log('Assets: ' + CollectionName + ': no folders chosen; passed over');
+          Inc(NotChosen);
+          Continue;
+        end;
+        for var Item in ChosenFolders do
+        begin
+          Source.Folder := Item.Folder;
+          Source.Formats := [Item.Format];
           Sources := Sources + [Source];
         end;
+        Log(Format('Assets: %s: %d of its %d %s folders chosen', [CollectionName,
+          Length(ChosenFolders), Length(SameFormat), ModelFormatName(Pick)]));
+      end
+      else
+      begin
+        Ticks := DefaultModelFolders(Found, Pick);
+        for var I := 0 to High(Found) do
+          if Ticks[I] then
+          begin
+            Source.Folder := Found[I].Folder;
+            Source.Formats := [Found[I].Format];
+            Sources := Sources + [Source];
+          end;
+      end;
       Id := NewCollection(CollectionName, Sources, ArtistId);
       if Id = String.Empty then
         Continue;
@@ -2612,10 +2867,12 @@ begin
     FLibrary.PreferredFormat := Defaults[0];
     SaveLibrary;
   end;
-  FBulkSummary := Format('%d collections added.%s%s%s%s', [Added,
+  FBulkSummary := Format('%d collections added.%s%s%s%s%s', [Added,
     IfThen(Existing > 0, Format(' %d were in the library already.', [Existing]), ''),
     IfThen(NoModels > 0, Format(' %d had no models.', [NoModels]), ''),
     IfThen(NoFormat > 0, Format(' %d had none of the formats chosen.', [NoFormat]), ''),
+    IfThen(NotChosen > 0, Format(' %d were skipped when choosing their folders.',
+    [NotChosen]), ''),
     IfThen(Stopped, ' Stopped before the end.', '')]);
   // Each imported in full now, one after another: folders read, thumbnails
   // made; the first is shown at the end
@@ -2644,7 +2901,7 @@ begin
     // One that cannot be read would never finish: passed over
     if LoadAssetCollection(FCacheFolder, Id, Probe) then
     begin
-      OpenCollection(Id, FBulkRescan);
+      OpenCollection(Id, FBulkRescan, FBulkRemake);
       Exit;
     end;
     LogError('Assets: can''t read the collection ' + Id + '; passed over');
@@ -2653,11 +2910,14 @@ begin
   if FBulkTotal = 0 then
     Exit;
   FBulkTotal := 0;
-  if FBulkRescan then
+  if FBulkRemake then
+    Log('Assets: artist collections rescanned, every thumbnail made again')
+  else if FBulkRescan then
     Log('Assets: artist collections rescanned')
   else
     Log('Assets: artist collections imported');
   FBulkRescan := False;
+  FBulkRemake := False;
   if FRunErrors > 0 then
     FBulkSummary := FBulkSummary + Format(' %s, listed in %s.',
       [CountText(FRunErrors, 'error'), ErrorLogFile])
@@ -2694,6 +2954,7 @@ begin
   AppendErrorLog(Format('--- stopped (%s); %s so far', [AWhy,
     CountText(FRunErrors, 'error')]));
   FBulkRescan := False;
+  FBulkRemake := False;
   FBulkQueue := nil;
   FBulkTotal := 0;
   FBulkFirst := String.Empty;
@@ -2873,6 +3134,125 @@ begin
   Result := (FMaking >= 0) or (Length(FQueue) > 0);
 end;
 
+class function TAssetsForm.ThumbnailCheckFile: String;
+begin
+  Result := TPath.Combine(ExtractFileDir(AssetDatabaseFile(
+    TSprite3DAppSettings.ThumbnailFolder)), THUMBNAIL_CHECK_FILE_NAME);
+end;
+
+procedure TAssetsForm.CheckThumbnails;
+const
+  VERDICT_NAMES: array[TThumbnailVerdict] of String = ('MISSING', 'EMPTY', 'NEARLY EMPTY',
+    'good');
+var
+  Checks: TArray<TThumbnailCheck>;
+  Check: TThumbnailCheck;
+  Collection: TSprite3DAssetCollection;
+  Measured: TDictionary<String, TThumbnailCheck>;
+  Bitmap: TBitmap;
+  Counts: array[TThumbnailVerdict] of Integer;
+  Lines: TArray<String>;
+  Where, Thumb: String;
+  At, Done: Integer;
+  Watch: TStopwatch;
+begin
+  if FChecking then
+    Exit;
+  FChecking := True;
+  try
+    LoadLibrary;
+    Watch := TStopwatch.StartNew;
+    Log('Assets: checking every thumbnail...');
+    for var V := Low(TThumbnailVerdict) to High(TThumbnailVerdict) do
+      Counts[V] := 0;
+    Checks := nil;
+    Done := 0;
+    // A model in more than one collection is measured once
+    Measured := TDictionary<String, TThumbnailCheck>.Create;
+    Bitmap := TBitmap.Create;
+    try
+      for var Entry in FLibrary.Collections do
+      begin
+        if not LoadAssetCollection(FCacheFolder, Entry.Id, Collection) then
+        begin
+          LogError('Assets: thumbnail check: can''t read the collection ' + Entry.Name);
+          Continue;
+        end;
+        Where := Entry.Name;
+        At := ArtistIndex(Entry.ArtistId);
+        if At >= 0 then
+          Where := FLibrary.Artists[At].Name + ' / ' + Where;
+        for var Model in Collection.Models do
+        begin
+          if not Measured.TryGetValue(Model.Key, Check) then
+          begin
+            Check := Default(TThumbnailCheck);
+            Thumb := AssetThumbnailFile(FCacheFolder, Model.Key);
+            Check.Verdict := tvMissing;
+            if TFile.Exists(Thumb) then
+              try
+                Bitmap.LoadFromFile(Thumb);
+                if MeasureVisible(Bitmap, Check.Visible, Check.MaxAlpha) then
+                  if Check.Visible = 0 then
+                    Check.Verdict := tvEmpty
+                  else if Check.Visible < CHECK_NEARLY_EMPTY then
+                    Check.Verdict := tvNearlyEmpty
+                  else
+                    Check.Verdict := tvGood;
+              except
+                // Unreadable: counts as missing
+              end;
+            Measured.Add(Model.Key, Check);
+          end;
+          Check.Text := Format('%s  %s  %s', [Where,
+            ChangeFileExt(ExtractFileName(Model.FileName), ''), Model.FileName]);
+          Inc(Counts[Check.Verdict]);
+          if Check.Verdict <> tvGood then
+            Checks := Checks + [Check];
+          Inc(Done);
+          // Kept responsive: thousands of thumbnails take a few seconds
+          if Done mod 50 = 0 then
+            Application.ProcessMessages;
+        end;
+      end;
+    finally
+      Bitmap.Free;
+      Measured.Free;
+    end;
+
+    // Worst first: missing, empty, then the emptiest of the nearly empty
+    TArray.Sort<TThumbnailCheck>(Checks, TComparer<TThumbnailCheck>.Construct(
+      function(const A, B: TThumbnailCheck): Integer
+      begin
+        Result := Ord(A.Verdict) - Ord(B.Verdict);
+        if Result = 0 then
+          Result := CompareValue(A.Visible, B.Visible);
+        if Result = 0 then
+          Result := CompareText(A.Text, B.Text);
+      end));
+    Lines := [Format('Thumbnail check, %s: %d models; %d missing, %d empty, %d nearly ' +
+      'empty (under %.1f%% visible), %d good. Visible means alpha %d or more.',
+      [FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), Done, Counts[tvMissing], Counts[tvEmpty],
+      Counts[tvNearlyEmpty], CHECK_NEARLY_EMPTY * 100, Counts[tvGood], CHECK_VISIBLE_ALPHA]),
+      'Verdict, share visible, highest alpha, artist / collection, model, file.', ''];
+    for var Each in Checks do
+      Lines := Lines + [Format('%-12s %7.3f%%  alpha %3d  %s', [VERDICT_NAMES[Each.Verdict],
+        Each.Visible * 100, Each.MaxAlpha, Each.Text])];
+    try
+      TFile.WriteAllLines(OSFriendlyPath(ThumbnailCheckFile), Lines, TEncoding.UTF8);
+    except
+      on E: Exception do
+        LogError('Assets: can''t write ' + ThumbnailCheckFile + ': ' + E.Message);
+    end;
+    Log(Format('Assets: thumbnail check of %d models in %s: %d missing, %d empty, %d ' +
+      'nearly empty, %d good; listed in %s', [Done,
+      DurationText(Watch.Elapsed.TotalSeconds), Counts[tvMissing], Counts[tvEmpty],
+      Counts[tvNearlyEmpty], Counts[tvGood], ThumbnailCheckFile]));
+  finally
+    FChecking := False;
+  end;
+end;
+
 procedure TAssetsForm.ClearLibrary;
 var
   Error, Folder, Preferred: String;
@@ -3014,6 +3394,7 @@ begin
       Seen.Add(R.Hash, R.FileName);
       Entry := Default(TAssetEntry);
       Entry.HasThumbnail := LoadAssetMeta(FCacheFolder, R.Hash, Entry.Meta) and
+        not FRemaking and
         (Entry.Meta.ThumbWidth = THUMBNAIL_SIZE) and
         (Entry.Meta.ThumbHeight = THUMBNAIL_SIZE) and
         TFile.Exists(AssetThumbnailFile(FCacheFolder, R.Hash));
@@ -3062,6 +3443,7 @@ begin
   if FScanning then
     FCollection.Scanned := True;
   FScanning := False;
+  FRemaking := False;
   SavePalette;
 
   // Name order throughout, whatever the group: a move to another group
@@ -4542,7 +4924,7 @@ begin
   FPreviewGrid := TModelGrid.Create(nil);
   FPreviewGrid.Parent := FModel;
   FPreviewGrid.GridSize := FGridSize;
-  FPreviewGrid.GridColor := PREVIEW_GRID_COLOUR;
+  FPreviewGrid.GridColor := PreviewGridColour;
   FPreviewGrid.GridLevel := 0;
   FPreviewGrid.SetExtent(FModelBox.TopLeftNear, FModelBox.BottomRightFar,
     FModel.RotationCenter.Point);
@@ -4552,9 +4934,10 @@ end;
 function TAssetsForm.LoadEntryModel(const AIndex: Integer): Boolean;
 var
   Box: TBoundingBox;
-  FileName: String;
+  FileName, LoadFile: String;
   Watch: TStopwatch;
   Bytes: Int64;
+  Fixes: TArray<TSprite3DTextureFix>;
 begin
   FileName := FEntries[AIndex].Meta.FileName;
   if IsSkipped(FileName) then
@@ -4581,7 +4964,14 @@ begin
   FModel := TGorillaModel.Create(FViewport);
   try
     FModel.Parent := FViewport;
-    LoadModelFile(FModel, FileName, Box);
+    // Its textures found, and made PNGs where the loader can't read them;
+    // loaded from a copy in the cache if any were
+    LoadFile := PrepareModelTextures(FileName, FCacheFolder, FEntries[AIndex].Meta.Hash,
+      Fixes);
+    ReportTextures(FEntries[AIndex].Meta.Name, Fixes);
+    if LoadFile <> FileName then
+      DebugLog('loading it from ' + LoadFile);
+    LoadModelFile(FModel, LoadFile, Box);
     FModel.RotationAngle.X := 180;
     FModel.ResetToBindPose();
   except
@@ -4598,6 +4988,82 @@ begin
   FEntries[AIndex].Meta.BoxMax := Box.BottomRightFar;
   UpdatePreviewLabel;
   Result := True;
+end;
+
+procedure TAssetsForm.ReportTextures(const AModel: String;
+  const AFixes: TArray<TSprite3DTextureFix>);
+begin
+  for var Fix in AFixes do
+    case Fix.Outcome of
+      toConverted:
+        Log(Format('Assets: %s: texture %s made a PNG, as the loader can''t read its format',
+          [AModel, Fix.Named]));
+      toOtherFile:
+        Log(Format('Assets: %s: texture %s used in place of %s (%s)', [AModel, Fix.Used,
+          Fix.Named, Fix.Reason]));
+      toOtherFileConverted:
+        Log(Format('Assets: %s: texture %s, made a PNG, used in place of %s (%s)', [AModel,
+          Fix.Source, Fix.Named, Fix.Reason]));
+      toMissing:
+        LogError(Format('Assets: %s: no texture for %s (%s), nor one of that name in a ' +
+          'format that can be read, in its folder or up to %d folders above it',
+          [AModel, Fix.Named, Fix.Reason, SEARCH_LEVELS_UP]));
+    end;
+end;
+
+procedure TAssetsForm.SetPreviewBackground(const Value: String);
+var
+  At: Integer;
+  Spec: TSprite3DBackgroundSpec;
+begin
+  At := IndexText(Value, PREVIEW_BACKGROUNDS);
+  if At < 0 then
+    At := 0;
+  FPreviewBackground := PREVIEW_BACKGROUNDS[At];
+  Spec := TSprite3DBackgroundSpec.Default;
+  if At = 0 then
+  begin
+    // In squares to suit the small view
+    Spec.Kind := TSprite3DBackgroundKind.Transparent;
+    Spec.CheckerSize := PREVIEW_CHECKER_SIZE;
+  end
+  else
+  begin
+    Spec.Kind := TSprite3DBackgroundKind.Solid;
+    Spec.Colour := PREVIEW_BACKGROUND_COLOURS[At];
+  end;
+  if FBackground <> nil then
+    FBackground.Spec := Spec;
+  if FPreviewGrid <> nil then
+    FPreviewGrid.GridColor := PreviewGridColour;
+  if (FBackgroundCombo <> nil) and (FBackgroundCombo.ItemIndex <> At) then
+  begin
+    FSettingBackground := True;
+    try
+      FBackgroundCombo.ItemIndex := At;
+    finally
+      FSettingBackground := False;
+    end;
+  end;
+end;
+
+procedure TAssetsForm.BackgroundComboChange(Sender: TObject);
+begin
+  if FSettingBackground or (FBackgroundCombo.ItemIndex < 0) or
+    (FBackgroundCombo.ItemIndex > High(PREVIEW_BACKGROUNDS)) then
+    Exit;
+  SetPreviewBackground(PREVIEW_BACKGROUNDS[FBackgroundCombo.ItemIndex]);
+  Log('Assets: preview background ' + FPreviewBackground);
+  if Assigned(FOnPreviewBackground) then
+    FOnPreviewBackground(FPreviewBackground);
+end;
+
+function TAssetsForm.PreviewGridColour: TAlphaColor;
+begin
+  if SameText(FPreviewBackground, 'black') or SameText(FPreviewBackground, 'grey') then
+    Result := PREVIEW_GRID_COLOUR_LIGHT
+  else
+    Result := PREVIEW_GRID_COLOUR;
 end;
 
 procedure TAssetsForm.ResetCameraAngles;

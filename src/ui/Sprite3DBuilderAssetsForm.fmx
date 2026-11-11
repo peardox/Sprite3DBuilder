@@ -344,6 +344,10 @@ object AssetsForm: TAssetsForm
     object MoveCollectionItem: TMenuItem
       Text = 'Move to Artist'
     end
+    object RemakeThumbnailsItem: TMenuItem
+      Text = 'Remake Thumbnails'
+      OnClick = RemakeThumbnailsItemClick
+    end
     object DeleteCollectionItem: TMenuItem
       Text = 'Delete Collection'
       OnClick = DeleteCollectionItemClick
@@ -359,6 +363,10 @@ object AssetsForm: TAssetsForm
     object RescanArtistItem: TMenuItem
       Text = 'Rescan All Collections'
       OnClick = RescanArtistItemClick
+    end
+    object RemakeArtistItem: TMenuItem
+      Text = 'Remake All Thumbnails'
+      OnClick = RemakeArtistItemClick
     end
     object DeleteArtistItem: TMenuItem
       Text = 'Delete Artist'

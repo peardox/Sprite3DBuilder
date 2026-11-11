@@ -114,6 +114,11 @@ object MainForm: TMainForm
         Text = 'Clear Library...'
         OnClick = ClearLibraryItemClick
       end
+      object CheckThumbnailsItem: TMenuItem
+        Locked = True
+        Text = 'Check Thumbnails'
+        OnClick = CheckThumbnailsItemClick
+      end
       object SettingsMenuItem: TMenuItem
         Locked = True
         Text = 'Settings...'

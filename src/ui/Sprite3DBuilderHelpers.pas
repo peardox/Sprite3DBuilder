@@ -193,9 +193,10 @@ type
     FViewFps: Integer;
     FMinifyJson: Boolean;
     FMouseView: Boolean;
-    //** @abstract(Backing fields for GridSize and AssetFolder.)
+    //** @abstract(Backing fields for GridSize, AssetFolder and PreviewBackground.)
     FGridSize: Single;
     FAssetFolder: String;
+    FPreviewBackground: String;
     procedure SetViewFps(const Value: Integer);
     procedure SetMinifyJson(const Value: Boolean);
     //** @abstract(Setter for GridSize: keeps it within GRID_SIZE_MIN to GRID_SIZE_MAX.)
@@ -371,6 +372,14 @@ type
     //** Stored as @code(assetFolder). The next Open Asset Folder starts there, or in
     //** AssetsFolder while it is empty or gone.
     property AssetFolder: String read FAssetFolder write FAssetFolder;
+    //** @abstract(What the Library's model preview shows behind the model: @code(checker),
+    //** standing for transparency, the default, or @code(black), @code(grey) or
+    //** @code(white).)
+    //**
+    //** Stored as @code(previewBackground); set by the drop-down over the preview, and saved
+    //** as soon as it changes. Any other value reads as @code(checker). Thumbnails are not
+    //** changed by it: they are always grabbed with a transparent background.
+    property PreviewBackground: String read FPreviewBackground write FPreviewBackground;
   end;
 
 //** @abstract(Shifts an angle in degrees by whole turns into the range 0 to 360.)
@@ -704,6 +713,7 @@ begin
   FMouseView := False;
   FGridSize := GRID_SIZE_DEFAULT;
   FAssetFolder := String.Empty;
+  FPreviewBackground := 'checker';
 end;
 
 procedure TSprite3DAppSettings.SetGridSize(const Value: Single);

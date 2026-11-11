@@ -4,7 +4,7 @@
         <ProjectVersion>20.5</ProjectVersion>
         <FrameworkType>FMX</FrameworkType>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Release</Config>
+        <Config Condition="'$(Config)'==''">Debug</Config>
         <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <TargetedPlatforms>2790531</TargetedPlatforms>
         <AppType>Application</AppType>
@@ -111,7 +111,8 @@
         <Base>true</Base>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
-        <DCC_UnitSearchPath>..\delphi-neon\Source;..\FastMM5;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\delphi-neon\Source;..\FastMM5;..\imaginglib\Source;..\imaginglib\Source\Libs;..\imaginglib\Extensions;..\imaginglib\Extensions\Libs;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_Define>DONT_LINK_JPEG2000;$(DCC_Define)</DCC_Define>
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_E>false</DCC_E>
@@ -379,6 +380,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="lib\Sprite3DResample.pas"/>
         <DCCReference Include="lib\Sprite3DOffscreen.pas"/>
         <DCCReference Include="lib\Sprite3DAssetCache.pas"/>
+        <DCCReference Include="lib\Sprite3DModelTextures.pas"/>
         <DCCReference Include="lib\Sprite3DGroupIcons.pas"/>
         <DCCReference Include="ui\Sprite3DBuilderImportForm.pas">
             <Form>ImportForm</Form>

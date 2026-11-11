@@ -62,6 +62,7 @@ uses
   Sprite3DResample in 'lib\Sprite3DResample.pas',
   Sprite3DOffscreen in 'lib\Sprite3DOffscreen.pas',
   Sprite3DAssetCache in 'lib\Sprite3DAssetCache.pas',
+  Sprite3DModelTextures in 'lib\Sprite3DModelTextures.pas',
   Sprite3DGroupIcons in 'lib\Sprite3DGroupIcons.pas',
   Sprite3DBuilderImportForm in 'ui\Sprite3DBuilderImportForm.pas' {ImportForm},
   Sprite3DBuilderFormatForm in 'ui\Sprite3DBuilderFormatForm.pas' {FormatForm},

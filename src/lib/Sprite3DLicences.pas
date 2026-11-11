@@ -35,6 +35,9 @@ uses
 const
   //** @abstract(The resource holding Neon's MIT licence.)
   LICENCE_NEON = 'LICENCE_NEON';
+  //** @abstract(The resource holding the Vampyre Imaging Library's notice and its Mozilla
+  //** Public License 2.0.)
+  LICENCE_VAMPYRE = 'LICENCE_VAMPYRE';
 
 type
   //** @abstract(One licence or notice the program carries.)
@@ -79,7 +82,8 @@ function ThirdPartyLicences: TArray<TSprite3DLicence>;
 
 begin
   Result := [
-    Entry('Neon JSON library: MIT licence', LICENCE_NEON)];
+    Entry('Neon JSON library: MIT licence', LICENCE_NEON),
+    Entry('Vampyre Imaging Library: Mozilla Public License 2.0', LICENCE_VAMPYRE)];
 end;
 
 function LicenceText(const AResource: String): String;
