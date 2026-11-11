@@ -356,6 +356,10 @@ object AssetsForm: TAssetsForm
       Text = 'Rename Artist...'
       OnClick = RenameArtistItemClick
     end
+    object RescanArtistItem: TMenuItem
+      Text = 'Rescan All Collections'
+      OnClick = RescanArtistItemClick
+    end
     object DeleteArtistItem: TMenuItem
       Text = 'Delete Artist'
       OnClick = DeleteArtistItemClick

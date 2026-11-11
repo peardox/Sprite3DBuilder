@@ -1073,6 +1073,9 @@ begin
   UseFmxMenuBar;
   {$ENDIF}
 
+  // The Library's error log holds this session's errors only
+  TAssetsForm.BeginErrorLog;
+
   // The Level tab first, with the view on it
   TabControl1.ActiveTab := LevelTab;
 

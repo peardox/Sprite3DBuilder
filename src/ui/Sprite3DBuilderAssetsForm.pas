@@ -58,7 +58,11 @@
 //**
 //** Closing the form stops making thumbnails; those made so far stay in the cache, and opening
 //** the collection again carries on from there. Everything the form has to report goes to OnLog,
-//** for the Debug tab. For the main thread only, but for the hashing, which keeps to its own
+//** for the Debug tab, and to the import log, begun again by each artist import or rescan;
+//** every error goes to the error log too (ErrorLogFile), which is begun only at start-up
+//** (BeginErrorLog), so it holds every error of the session. Rescan All Collections, on
+//** ArtistMenu, reads every collection of the artist shown again, one after another. For
+//** the main thread only, but for the hashing, which keeps to its own
 //** data and hands back its results with @code(TThread.Queue).
 //**
 //** @preformatted(
@@ -81,7 +85,8 @@
 //** |                     DeleteGroupItem
 //** |-- CollectionMenu    TPopupMenu: RenameCollectionItem, MoveCollectionItem,
 //** |                     DeleteCollectionItem
-//** |-- ArtistMenu        TPopupMenu: RenameArtistItem, DeleteArtistItem
+//** |-- ArtistMenu        TPopupMenu: RenameArtistItem, RescanArtistItem,
+//** |                     DeleteArtistItem
 //** `-- IconDialog        TOpenDialog, for Change Icon
 //** )
 unit Sprite3DBuilderAssetsForm;
@@ -233,10 +238,13 @@ type
     ArtistCombo: TComboBox;
     //** @abstract(Opens ArtistMenu.)
     ArtistMenuButton: TButton;
-    //** @abstract(Rename and Delete for the artist shown.)
+    //** @abstract(Rename, Rescan All Collections and Delete for the artist shown.)
     ArtistMenu: TPopupMenu;
     //** @abstract(Rename Artist...)
     RenameArtistItem: TMenuItem;
+    //** @abstract(Rescan All Collections: every collection of the artist shown read again
+    //** and its thumbnails made, one after another, as an artist import does.)
+    RescanArtistItem: TMenuItem;
     //** @abstract(Delete Artist: the artist and their collections, from the library.)
     DeleteArtistItem: TMenuItem;
     //** @abstract(Add Artist...: a new artist, by name.)
@@ -417,6 +425,16 @@ type
     //**
     //** @param(Sender RenameArtistItem.)
     procedure RenameArtistItemClick(Sender: TObject);
+    //** @abstract(Rescans every collection of the artist shown, one after another (NextBulk),
+    //** each one's folders read again (ScanCollection) and the thumbnails it still lacks
+    //** made; then the collection open before is shown, with a summary that says how many
+    //** errors there were.)
+    //**
+    //** The import log is begun again, as for an artist import; the error log, ErrorLogFile,
+    //** is only added to. Choosing another collection or closing the Library stops it.
+    //**
+    //** @param(Sender RescanArtistItem.)
+    procedure RescanArtistItemClick(Sender: TObject);
     //** @abstract(Asks, then takes the artist and their collections out of the library.)
     //**
     //** @param(Sender DeleteArtistItem.)
@@ -588,6 +606,15 @@ type
     FBulkSummary: String;
     //** @abstract(True when DeferredWork is to go on to the next collection to import.)
     FBulkPending: Boolean;
+    //** @abstract(True while the run of collections under way is a Rescan All Collections:
+    //** each one's folders are read again, not opened from what was saved.)
+    FBulkRescan: Boolean;
+    //** @abstract(How many errors have gone to the error log since the last artist import
+    //** or rescan began, for its summary.)
+    FRunErrors: Integer;
+    //** @abstract(How many of the queue's thumbnails were made, so the count at the end
+    //** leaves out those that failed.)
+    FMadeCount: Integer;
     //** @abstract(The entry whose thumbnail is being made; -1 for none.)
     FMaking: Integer;
     //** @abstract(The entry selected, whose details and preview are shown; -1 for none.)
@@ -673,7 +700,9 @@ type
     //** scanned, else by scanning them.)
     //**
     //** @param(AId The collection's id; empty shows no collection.)
-    procedure OpenCollection(const AId: String);
+    //**
+    //** @param(ARescan True to read its folders again even if they have been scanned.)
+    procedure OpenCollection(const AId: String; const ARescan: Boolean = False);
     //** @abstract(Reads the open collection's folders: every model hashed on a worker
     //** thread, then shown, its groups kept.)
     procedure ScanCollection;
@@ -795,8 +824,19 @@ type
     //**
     //** @param(AText The line.)
     procedure DebugLog(const AText: String);
+    //** @abstract(Logs AText as Log does, and adds it to the error log, ErrorLogFile, with
+    //** the artist and collection open, and counts it in FRunErrors.)
+    //**
+    //** @param(AText The line; an @code(Assets: ) at its start is left out of the error log.)
+    procedure LogError(const AText: String);
+    //** @abstract(Begins the import log again, for an artist import or rescan, with AHeader
+    //** and the time the program was built as its first line; AHeader goes in the error log
+    //** too, so the errors after it can be told apart from those of other runs.)
+    //**
+    //** @param(AHeader What is being done, such as @code(Artist import: ...).)
+    procedure StartImportLog(const AHeader: String);
     //** @abstract(The import log: what the Library did, with each model's load and grab
-    //** timed, in the settings folder; begun again by each artist import.)
+    //** timed, in the settings folder; begun again by each artist import or rescan.)
     //**
     //** @returns(The file's path.)
     function ImportLogFile: String;
@@ -1306,6 +1346,15 @@ type
     //** emptied.)
     procedure StopMaking;
   public
+    //** @abstract(Begins the error log, ErrorLogFile, afresh for this run of the program,
+    //** with a line saying when it started; call once, at start-up. A failure to write it
+    //** is ignored.)
+    class procedure BeginErrorLog; static;
+    //** @abstract(The error log: every error the Library has met since the program
+    //** started, across every collection, import and rescan, in the settings folder.)
+    //**
+    //** @returns(The file's path.)
+    class function ErrorLogFile: String; static;
     //** @abstract(Shows the Library, opening the collection open last, if there is one.)
     procedure ShowLibrary;
     //** @abstract(Deletes the whole library, every collection and thumbnail
@@ -1406,6 +1455,10 @@ const
   GRAB_POLL_MS = 50;
   //** @abstract(The import log's name, in the settings folder; see ImportLogFile.)
   IMPORT_LOG_FILE_NAME = 'library-import.log';
+  //** @abstract(The error log's name, in the settings folder; see ErrorLogFile.)
+  ERROR_LOG_FILE_NAME = 'library-errors.log';
+  //** @abstract(How a line of the logs starts: the time, to the millisecond.)
+  LOG_TIME_FORMAT = 'yyyy-mm-dd hh:nn:ss.zzz';
   //** @abstract(The name of the file naming the model in the viewport; see LoadingFile.)
   LOADING_FILE_NAME = 'library-loading.txt';
   //** @abstract(The name of the list of models passed over; see SkipFile.)
@@ -1460,6 +1513,32 @@ begin
     Result := Format('%dm %.2ds', [Total div 60, Total mod 60])
   else
     Result := Format('%dh %.2dm', [Total div 3600, (Total mod 3600) div 60]);
+end;
+
+//** @abstract(Adds AText, after the time, to the error log; a failure to write is
+//** ignored.)
+//**
+//** @param(AText The line.)
+procedure AppendErrorLog(const AText: String);
+begin
+  try
+    TFile.AppendAllText(OSFriendlyPath(TAssetsForm.ErrorLogFile),
+      FormatDateTime(LOG_TIME_FORMAT, Now) + ' ' + AText + sLineBreak, TEncoding.UTF8);
+  except
+    // A log that can't be written is no reason to stop
+  end;
+end;
+
+//** @abstract(When the program was built, from its file's time, for the logs' first lines.)
+//**
+//** @returns(The time, or an empty string if it cannot be read.)
+function BuildTimeText: String;
+begin
+  try
+    Result := FormatDateTime('yyyy-mm-dd hh:nn:ss', TFile.GetLastWriteTime(ParamStr(0)));
+  except
+    Result := String.Empty;
+  end;
 end;
 
 { TAssetsForm }
@@ -1721,7 +1800,7 @@ begin
   except
     on E: Exception do
     begin
-      Log('Assets: can''t save the collection ' + Moved.Name + ': ' + E.Message);
+      LogError('Assets: can''t save the collection ' + Moved.Name + ': ' + E.Message);
       Exit;
     end;
   end;
@@ -1738,7 +1817,7 @@ begin
     TFile.Move(OldFile, OldFile + '.moved');
   except
     on E: Exception do
-      Log('Assets: can''t rename ' + OldFile + ': ' + E.Message);
+      LogError('Assets: can''t rename ' + OldFile + ': ' + E.Message);
   end;
   Log('Assets: the palette is now the collection ' + Moved.Name + ' in the library');
 end;
@@ -1749,7 +1828,7 @@ begin
     SaveAssetLibrary(FCacheFolder, FLibrary);
   except
     on E: Exception do
-      Log('Assets: can''t save the library in ' + FCacheFolder + ': ' + E.Message);
+      LogError('Assets: can''t save the library in ' + FCacheFolder + ': ' + E.Message);
   end;
 end;
 
@@ -1812,7 +1891,7 @@ begin
     Caption := 'Library';
 end;
 
-procedure TAssetsForm.OpenCollection(const AId: String);
+procedure TAssetsForm.OpenCollection(const AId: String; const ARescan: Boolean);
 var
   Results: TArray<TAssetHashResult>;
   Opened: TSprite3DAssetCollection;
@@ -1827,7 +1906,7 @@ begin
   if (AId = String.Empty) or not LoadAssetCollection(FCacheFolder, AId, Opened) then
   begin
     if AId <> String.Empty then
-      Log('Assets: can''t read the collection ' + AId);
+      LogError('Assets: can''t read the collection ' + AId);
     FCollection := Default(TSprite3DAssetCollection);
     FGroupOrder := nil;
     FPaletteGroups.Clear;
@@ -1860,7 +1939,7 @@ begin
   SaveLibrary;
   FillCollections;
   Log('Assets: collection ' + FCollection.Name + ' opened');
-  if not FCollection.Scanned or (Length(FCollection.Models) = 0) then
+  if ARescan or not FCollection.Scanned or (Length(FCollection.Models) = 0) then
   begin
     ScanCollection;
     Exit;
@@ -1982,8 +2061,10 @@ end;
 
 procedure TAssetsForm.RescanButtonClick(Sender: TObject);
 begin
-  if FCollection.Id <> String.Empty then
-    ScanCollection;
+  if FCollection.Id = String.Empty then
+    Exit;
+  AppendErrorLog('--- Rescan: ' + FCollection.Name);
+  ScanCollection;
 end;
 
 procedure TAssetsForm.CollectionMenuButtonClick(Sender: TObject);
@@ -2100,7 +2181,7 @@ begin
   except
     on E: Exception do
     begin
-      Log('Assets: can''t save the collection ' + AName + ': ' + E.Message);
+      LogError('Assets: can''t save the collection ' + AName + ': ' + E.Message);
       Exit;
     end;
   end;
@@ -2218,6 +2299,43 @@ begin
     [FLibrary.Artists[ArtistIndex(FArtistId)].Name], GroupNameClosed);
 end;
 
+procedure TAssetsForm.RescanArtistItemClick(Sender: TObject);
+var
+  At: Integer;
+  Ids: TArray<String>;
+  Name: String;
+begin
+  At := ArtistIndex(FArtistId);
+  if At < 0 then
+    Exit;
+  Name := FLibrary.Artists[At].Name;
+  Ids := nil;
+  for var Entry in FLibrary.Collections do
+    if SameText(Entry.ArtistId, FArtistId) then
+      Ids := Ids + [Entry.Id];
+  if Length(Ids) = 0 then
+  begin
+    TDialogService.ShowMessage(Name + ' has no collections to rescan.');
+    Exit;
+  end;
+  StopBulk('a rescan started');
+  StartImportLog(Format('Artist rescan: %s, %s', [Name,
+    CountText(Length(Ids), 'collection')]));
+  FRunErrors := 0;
+  // Each read again, one after another; the one open now is shown at the end
+  FBulkRescan := True;
+  FBulkQueue := Ids;
+  FBulkTotal := Length(Ids);
+  if (FCollection.Id <> String.Empty) and SameText(FCollection.ArtistId, FArtistId) then
+    FBulkFirst := FCollection.Id
+  else
+    FBulkFirst := Ids[0];
+  FBulkSummary := Format('%s: %s rescanned.', [Name, CountText(Length(Ids), 'collection')]);
+  Log(Format('Assets: rescanning the %s of %s', [CountText(Length(Ids), 'collection'),
+    Name]));
+  NextBulk;
+end;
+
 procedure TAssetsForm.ArtistNamed(const AAsk: TGroupNameAsk; const AName: String);
 var
   At: Integer;
@@ -2286,7 +2404,7 @@ begin
     if SameText(FLibrary.Collections[I].ArtistId, FArtistId) then
     begin
       if not DeleteAssetCollection(FCacheFolder, FLibrary.Collections[I].Id) then
-        Log('Assets: can''t delete the collection ' + FLibrary.Collections[I].Name);
+        LogError('Assets: can''t delete the collection ' + FLibrary.Collections[I].Name);
       Delete(FLibrary.Collections, I, 1);
     end;
   Delete(FLibrary.Artists, At, 1);
@@ -2332,15 +2450,10 @@ begin
     Title := 'Add Collections to ' + FLibrary.Artists[ArtistIndex(Target)].Name;
   if not SelectFolders(Title, StartFolder, Roots) then
     Exit;
-  // A new log for each artist import
-  try
-    if FileExists(OSFriendlyPath(ImportLogFile)) then
-      TFile.Delete(OSFriendlyPath(ImportLogFile));
-  except
-    // Added to instead
-  end;
-  DebugLog('Artist import: ' + Title + ' from ' + String.Join(', ', Roots) + '; program ' +
-    'built ' + FormatDateTime('yyyy-mm-dd hh:nn:ss', TFile.GetLastWriteTime(ParamStr(0))));
+  // A new import log for each artist import; the error log is added to
+  StopBulk('a new one started');
+  StartImportLog('Artist import: ' + Title + ' from ' + String.Join(', ', Roots));
+  FRunErrors := 0;
   FLibrary.LastFolder := Roots[0];
   SaveLibrary;
   // Each folder directly inside, in name order, under the artist shown,
@@ -2368,7 +2481,7 @@ begin
       end;
     except
       on E: Exception do
-        Log('Assets: can''t read ' + Root + ': ' + E.Message);
+        LogError('Assets: can''t read ' + Root + ': ' + E.Message);
     end;
   if Length(Folders) = 0 then
   begin
@@ -2376,7 +2489,6 @@ begin
     Exit;
   end;
 
-  StopBulk('a new one started');
   NewIds := nil;
   Defaults := nil;
   OnlyDefaults := False;
@@ -2406,7 +2518,7 @@ begin
       Found := FindModelFolders([Folder]);
       if Length(Found) = 0 then
       begin
-        Log('Assets: no models in ' + Folder);
+        LogError('Assets: no models in ' + Folder);
         Inc(NoModels);
         Continue;
       end;
@@ -2532,16 +2644,26 @@ begin
     // One that cannot be read would never finish: passed over
     if LoadAssetCollection(FCacheFolder, Id, Probe) then
     begin
-      OpenCollection(Id);
+      OpenCollection(Id, FBulkRescan);
       Exit;
     end;
-    Log('Assets: can''t read the collection ' + Id + '; passed over');
+    LogError('Assets: can''t read the collection ' + Id + '; passed over');
   end;
   // All done
   if FBulkTotal = 0 then
     Exit;
   FBulkTotal := 0;
-  Log('Assets: artist collections imported');
+  if FBulkRescan then
+    Log('Assets: artist collections rescanned')
+  else
+    Log('Assets: artist collections imported');
+  FBulkRescan := False;
+  if FRunErrors > 0 then
+    FBulkSummary := FBulkSummary + Format(' %s, listed in %s.',
+      [CountText(FRunErrors, 'error'), ErrorLogFile])
+  else
+    FBulkSummary := FBulkSummary + ' No errors.';
+  AppendErrorLog(Format('--- %s', [CountText(FRunErrors, 'error')]));
   if FBulkFirst <> String.Empty then
     OpenCollection(FBulkFirst);
   FBulkFirst := String.Empty;
@@ -2563,8 +2685,15 @@ procedure TAssetsForm.StopBulk(const AWhy: String);
 begin
   if FBulkTotal = 0 then
     Exit;
-  Log(Format('Assets: artist import stopped (%s); %d collections not yet imported will ' +
-    'be as each is opened', [AWhy, Length(FBulkQueue)]));
+  if FBulkRescan then
+    Log(Format('Assets: artist rescan stopped (%s); %d collections not rescanned', [AWhy,
+      Length(FBulkQueue)]))
+  else
+    Log(Format('Assets: artist import stopped (%s); %d collections not yet imported will ' +
+      'be as each is opened', [AWhy, Length(FBulkQueue)]));
+  AppendErrorLog(Format('--- stopped (%s); %s so far', [AWhy,
+    CountText(FRunErrors, 'error')]));
+  FBulkRescan := False;
   FBulkQueue := nil;
   FBulkTotal := 0;
   FBulkFirst := String.Empty;
@@ -2594,7 +2723,7 @@ begin
     if SameText(FLibrary.Collections[I].Id, Id) then
       Delete(FLibrary.Collections, I, 1);
   if not DeleteAssetCollection(FCacheFolder, Id) then
-    Log('Assets: can''t delete the file of collection ' + Id);
+    LogError('Assets: can''t delete the file of collection ' + Id);
   FCollection := Default(TSprite3DAssetCollection);
   FLibrary.Last := String.Empty;
   SaveLibrary;
@@ -2623,11 +2752,64 @@ end;
 procedure TAssetsForm.DebugLog(const AText: String);
 begin
   try
-    TFile.AppendAllText(OSFriendlyPath(ImportLogFile), FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz',
+    TFile.AppendAllText(OSFriendlyPath(ImportLogFile), FormatDateTime(LOG_TIME_FORMAT,
       Now) + ' ' + AText + sLineBreak, TEncoding.UTF8);
   except
     // A log that can't be written is no reason to stop
   end;
+end;
+
+procedure TAssetsForm.LogError(const AText: String);
+var
+  Line, Where: String;
+  At: Integer;
+begin
+  Log(AText);
+  Inc(FRunErrors);
+  Line := AText;
+  if Line.StartsWith('Assets: ') then
+    Line := Line.Substring(Length('Assets: '));
+  // Which collection it was in, as the log holds every collection's
+  Where := String.Empty;
+  if FCollection.Id <> String.Empty then
+  begin
+    Where := FCollection.Name;
+    At := ArtistIndex(FCollection.ArtistId);
+    if At >= 0 then
+      Where := FLibrary.Artists[At].Name + ' / ' + Where;
+  end;
+  if Where <> String.Empty then
+    Line := '[' + Where + '] ' + Line;
+  AppendErrorLog(Line);
+end;
+
+procedure TAssetsForm.StartImportLog(const AHeader: String);
+begin
+  try
+    if FileExists(OSFriendlyPath(ImportLogFile)) then
+      TFile.Delete(OSFriendlyPath(ImportLogFile));
+  except
+    // Added to instead
+  end;
+  DebugLog(AHeader + '; program built ' + BuildTimeText);
+  AppendErrorLog('--- ' + AHeader);
+end;
+
+class procedure TAssetsForm.BeginErrorLog;
+begin
+  try
+    ForceDirectories(ExtractFileDir(OSFriendlyPath(ErrorLogFile)));
+    TFile.WriteAllText(OSFriendlyPath(ErrorLogFile), FormatDateTime(LOG_TIME_FORMAT, Now) +
+      ' Program started; built ' + BuildTimeText + sLineBreak, TEncoding.UTF8);
+  except
+    // A log that can't be written is no reason to stop
+  end;
+end;
+
+class function TAssetsForm.ErrorLogFile: String;
+begin
+  Result := TPath.Combine(ExtractFileDir(AssetDatabaseFile(
+    TSprite3DAppSettings.ThumbnailFolder)), ERROR_LOG_FILE_NAME);
 end;
 
 function TAssetsForm.ImportLogFile: String;
@@ -2669,13 +2851,13 @@ begin
         FSkipped.Add(Hung);
         TFile.WriteAllLines(OSFriendlyPath(SkipFile), FSkipped.ToStringArray,
           TEncoding.UTF8);
-        Log('Assets: the program stopped last time with ' + Hung + ' loading or shown; ' +
+        LogError('Assets: the program stopped last time with ' + Hung + ' loading or shown; ' +
           'it is passed over from now on (take it out of ' + SkipFile + ' to try it again)');
       end;
     end;
   except
     on E: Exception do
-      Log('Assets: can''t read the models passed over: ' + E.Message);
+      LogError('Assets: can''t read the models passed over: ' + E.Message);
   end;
   if FSkipped.Count > 0 then
     Log(Format('Assets: %d models passed over, listed in %s', [FSkipped.Count, SkipFile]));
@@ -2705,7 +2887,7 @@ begin
   if ClearAssetLibrary(FCacheFolder, Error) then
     Log('Assets: the library, its collections and every thumbnail deleted')
   else
-    Log('Assets: the library is cleared, but some could not be deleted: ' + Error);
+    LogError('Assets: the library is cleared, but some could not be deleted: ' + Error);
   // Empty from here on; nothing of before it to move in
   FLibrary := Default(TSprite3DAssetLibrary);
   FLibrary.LastFolder := Folder;
@@ -2733,12 +2915,12 @@ begin
     if DirectoryExists(OSFriendlyPath(Source.Folder)) then
       Files := Files + AssetModelFilesOf(OSFriendlyPath(Source.Folder), Source.Formats)
     else
-      Log('Assets: the folder ' + Source.Folder + ' of ' + FCollection.Name +
+      LogError('Assets: the folder ' + Source.Folder + ' of ' + FCollection.Name +
         ' is not there');
   if Length(Files) = 0 then
   begin
     StatusLabel.Text := 'No models in the collection''s folders';
-    Log('Assets: no models in ' + SourcesText);
+    LogError('Assets: no models in ' + SourcesText);
     // Still shown, with the groups it has
     HashesDone(FScanId, nil);
     Exit;
@@ -2821,7 +3003,7 @@ begin
     begin
       if R.Error <> String.Empty then
       begin
-        Log('Assets: can''t read ' + R.FileName + ': ' + R.Error);
+        LogError('Assets: can''t read ' + R.FileName + ': ' + R.Error);
         Continue;
       end;
       if Seen.TryGetValue(R.Hash, First) then
@@ -2895,6 +3077,7 @@ begin
     if not FEntries[I].HasThumbnail then
       FQueue := FQueue + [I];
   FQueueTotal := Length(FQueue);
+  FMadeCount := 0;
   // Timed from the first, for the time left
   FMakeWatch := TStopwatch.StartNew;
 
@@ -3416,7 +3599,7 @@ begin
       FIconBitmaps.AddOrSetValue(FileName, Bitmap);
       Exit(Bitmap);
     end;
-    Log('Assets: can''t read the icon ' + FileName);
+    LogError('Assets: can''t read the icon ' + FileName);
   end;
   // Else its first model's thumbnail
   for var Entry in FEntries do
@@ -3760,7 +3943,7 @@ begin
     except
       on E: Exception do
       begin
-        Log('Assets: can''t copy the icon ' + Source + ' to ' + Target + ': ' + E.Message);
+        LogError('Assets: can''t copy the icon ' + Source + ' to ' + Target + ': ' + E.Message);
         Exit;
       end;
     end;
@@ -3860,7 +4043,7 @@ begin
     SaveAssetCollection(FCacheFolder, FCollection);
   except
     on E: Exception do
-      Log('Assets: can''t save the collection ' + FCollection.Name + ' in ' + FCacheFolder +
+      LogError('Assets: can''t save the collection ' + FCollection.Name + ' in ' + FCacheFolder +
         ': ' + E.Message);
   end;
   // The counts the bars show, refilled only when they change
@@ -4264,7 +4447,7 @@ begin
           begin
             // Unreadable after all: made again
             FEntries[I].HasThumbnail := False;
-            Log('Assets: can''t read the thumbnail of ' + FEntries[I].Meta.Name + ': ' +
+            LogError('Assets: can''t read the thumbnail of ' + FEntries[I].Meta.Name + ': ' +
               E.Message);
           end;
         end;
@@ -4376,7 +4559,7 @@ begin
   FileName := FEntries[AIndex].Meta.FileName;
   if IsSkipped(FileName) then
   begin
-    Log('Assets: ' + FileName + ' passed over: it was in the viewport when the program ' +
+    LogError('Assets: ' + FileName + ' passed over: it was in the viewport when the program ' +
       'last stopped');
     Exit(False);
   end;
@@ -4404,7 +4587,7 @@ begin
   except
     on E: Exception do
     begin
-      Log('Assets: can''t load ' + FileName + ': ' + E.Message);
+      LogError('Assets: can''t load ' + FileName + ': ' + E.Message);
       FreeModel;
       Exit(False);
     end;
@@ -4484,7 +4667,11 @@ begin
     // Only while there is something to show progress on
     Progress.Visible := False;
     StatusLabel.Text := Format('%d models', [Length(FEntries)]);
-    if FQueueTotal > 0 then
+    if FQueueTotal > FMadeCount then
+      Log(Format('Assets: %d of %d thumbnails made in %s; %d failed, listed in %s',
+        [FMadeCount, FQueueTotal, DurationText(FMakeWatch.Elapsed.TotalSeconds),
+        FQueueTotal - FMadeCount, ErrorLogFile]))
+    else if FQueueTotal > 0 then
       Log(Format('Assets: %d thumbnails made in %s', [FQueueTotal,
         DurationText(FMakeWatch.Elapsed.TotalSeconds)]));
     // Groups with no icon of their own show a thumbnail, there now
@@ -4545,7 +4732,7 @@ begin
   FPumpsUseful := 0;
   if not FOffscreen.Grab(GrabDone(FMaking, FScanId)) then
   begin
-    Log('Assets: can''t start the thumbnail of ' + FEntries[FMaking].Meta.Name);
+    LogError('Assets: can''t start the thumbnail of ' + FEntries[FMaking].Meta.Name);
     FMaking := -1;
     FreeModel;
     MakeNextLater;
@@ -4593,10 +4780,10 @@ begin
     FViewport.Invalidate;
     if FOffscreen.Grab(GrabDone(FMaking, FScanId)) then
       Exit;   // FGrabTimer runs on for this try
-    Log('Assets: can''t start the thumbnail of ' + FEntries[FMaking].Meta.Name + ' again');
+    LogError('Assets: can''t start the thumbnail of ' + FEntries[FMaking].Meta.Name + ' again');
   end;
   FGrabTimer.Enabled := False;
-  Log(Format('Assets: no thumbnail for %s: the grab had not come back after %d tries; ' +
+  LogError(Format('Assets: no thumbnail for %s: the grab had not come back after %d tries; ' +
     'passed over', [FEntries[FMaking].Meta.FileName, FGrabTries]));
   FMaking := -1;
   FreeModel;
@@ -4649,7 +4836,7 @@ begin
     FModelBox.Near, FModelBox.Right, FModelBox.Bottom, FModelBox.Far,
     FCamera.Camera.Distance, FCamera.Camera.OrthoHeight]));
   if ABitmap = nil then
-    Log('Assets: no thumbnail for ' + FEntries[AIndex].Meta.Name + ': ' + AError)
+    LogError('Assets: no thumbnail for ' + FEntries[AIndex].Meta.Name + ': ' + AError)
   else
     try
       ForceDirectories(AssetKeyFolder(FCacheFolder, FEntries[AIndex].Meta.Hash));
@@ -4660,13 +4847,14 @@ begin
       FEntries[AIndex].Meta.Created := DateToISO8601(Now, False);
       SaveAssetMeta(FCacheFolder, FEntries[AIndex].Meta);
       FEntries[AIndex].HasThumbnail := True;
+      Inc(FMadeCount);
       if FEntries[AIndex].Image <> nil then
         FEntries[AIndex].Image.Bitmap.Assign(ABitmap);
       if AIndex = FSelected then
         SelectEntry(AIndex);   // its size is known now
     except
       on E: Exception do
-        Log('Assets: can''t save the thumbnail of ' + FEntries[AIndex].Meta.Name +
+        LogError('Assets: can''t save the thumbnail of ' + FEntries[AIndex].Meta.Name +
           ' in ' + FCacheFolder + ': ' + E.Message);
     end;
   MakeNextLater;

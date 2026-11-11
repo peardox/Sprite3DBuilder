@@ -5,7 +5,7 @@ the owner works, the rules for the code, and where the work has got to.
 `README.md` describes the program for its users and developers; this file
 is for Claude. Read both.
 
-Last updated: 11 November 2026, 05:30.
+Last updated: 11 November 2026, 13:05.
 
 ## Starting a new conversation
 
@@ -54,9 +54,13 @@ line with peardox/SRDelphiFMX's on 8 November 2026).
   whole files.
 - When supplying files as a zip, put **only the files new or changed since
   the previous zip** in it, with paths from the repository root, so it can
-  be unzipped straight over the working copy. Give each zip a name, name
-  the files in the reply, and say which earlier zip it follows or
-  replaces.
+  be unzipped straight over the working copy. Name the files in the
+  reply, and say which earlier zip it follows or replaces.
+- **Zip names say what is in them** (owner, 11 November 2026): the date
+  and time, then a few words for the change, lower case with hyphens,
+  such as `2026-11-11-1305-zip-naming-rule.zip`, so they sort in order and
+  can be told apart at a glance. The `BuilderNx` names of before (up to
+  Builder3zj) are not used any more; refer to a zip by its full name.
 - **Files to delete or rename** cannot travel in a zip: list them in the
   reply with the git commands (`git rm ...`, `git mv ...`).
 - **Package rebuilds**: Spritely lives in the Sprite3D repository, not here. A change
@@ -362,9 +366,55 @@ gone up.
 
 ## Where the work is
 
-### Handover (11 November 2026, 05:30)
+### Handover (11 November 2026, 13:00)
 
 Read this first; the dated entries below it are the history.
+
+- **GitHub `main` is at `d9c4f15`** ("obj import fixed", 05:47), which has
+  Builder3zi's work. **Builder3zj** follows it: **Rescan All Collections**
+  on the artist's **...** menu (`RescanArtistItemClick`: every collection
+  of the artist shown queued through `NextBulk` with `FBulkRescan`, so
+  `OpenCollection(Id, True)` scans each again); a **session error log**,
+  `library-errors.log` in the settings folder (`TAssetsForm.ErrorLogFile`),
+  begun by `TAssetsForm.BeginErrorLog` from the main form's `FormCreate`
+  and only added to after that: every error goes through `LogError`, which
+  tags it `[Artist / Collection]`, and `StartImportLog` / `NextBulk` /
+  `StopBulk` / Rescan put `---` lines round each run; the summary of an
+  artist import or rescan gives its error count (`FRunErrors`); and the
+  "thumbnails made" line counts only those made (`FMadeCount`), with how
+  many failed. The owner tested it (12:51-12:54): Kenney's 46 collections
+  rescanned with 0 errors, Zerin's 13 with the same 529 as before, each
+  tagged with its collection.
+- **Zips are named for what they hold from now on** (see *Delivering
+  work*); the first is `2026-11-11-1305-zip-naming-rule.zip`, which
+  follows Builder3zj. "Builder4" is still the name of the stage that
+  places models on the level, not of a zip.
+- **Next: textures that are not where the model says.** The owner's import
+  of Zerin's packs (11 November, 06:05) failed 529 models, all with
+  `AssetsManager.TextureAsset - unsupported file format ".psd"`, and all in
+  the four packs imported as text glTF (Retro-Atlantis 104 of 110, Cave 178
+  of 180, Clocktower 129 of 132, Pyramid 118 of 124); every `.glb` pack
+  loaded. Gorilla3D rejects a texture by its extension. The owner says such
+  models often name `x.psd` where the file is `x.png`, and that names can
+  differ a little too. Plan, agreed in outline, waiting on a sample
+  `.gltf` and a listing of its folder from the owner: resolve each image a
+  `.gltf` names (as named if it is there and readable; else the same base
+  name, case ignored and URL-decoded, with an extension Gorilla3D reads;
+  else one unambiguous near match; log each), and when anything had to be
+  resolved, load a fixed copy of the `.gltf` written into the cache, never
+  touching the pack; the content key hashes the files actually used. Only
+  if some pack ships nothing but PSDs: convert them with the **Vampyre
+  Imaging Library** (`github.com/galfar/imaginglib`, MPL 2.0, pure Pascal,
+  `Extensions/ImagingPsd.pas` reads the flattened image, 8 or 16 bit,
+  `Extensions/ImagingFmx.pas` makes an FMX `TBitmap`), as a submodule, with
+  `docs/licences-required.md` and the README's Licences updated.
+- The owner's log of that import stops in Retro-Winter, after
+  `deco_winter_end ... loaded in 18 ms` with no grab: ask whether it was cut
+  short when pasted or the program stalled there.
+- The owner mentions harder-to-spot errors still to come, after the
+  textures.
+
+### Handover (11 November 2026, 05:30)
 
 - **GitHub `main` is at `e15caac`** ("obj import woes"), which is
   **Builder3zf** exactly (checked file by file). The zips after it, not
