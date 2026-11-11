@@ -104,10 +104,15 @@ object MainForm: TMainForm
     Top = 8
     object FileMenu: TMenuItem
       Text = 'File'
-      object OpenAssetFolderItem: TMenuItem
+      object LibraryItem: TMenuItem
         Locked = True
-        Text = 'Open Asset Folder...'
-        OnClick = OpenAssetFolderItemClick
+        Text = 'Library...'
+        OnClick = LibraryItemClick
+      end
+      object ClearThumbnailsItem: TMenuItem
+        Locked = True
+        Text = 'Clear Thumbnails'
+        OnClick = ClearThumbnailsItemClick
       end
       object SettingsMenuItem: TMenuItem
         Locked = True

@@ -379,6 +379,15 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="lib\Sprite3DResample.pas"/>
         <DCCReference Include="lib\Sprite3DOffscreen.pas"/>
         <DCCReference Include="lib\Sprite3DAssetCache.pas"/>
+        <DCCReference Include="lib\Sprite3DGroupIcons.pas"/>
+        <DCCReference Include="ui\Sprite3DBuilderImportForm.pas">
+            <Form>ImportForm</Form>
+            <FormType>fmx</FormType>
+        </DCCReference>
+        <DCCReference Include="ui\Sprite3DBuilderFormatForm.pas">
+            <Form>FormatForm</Form>
+            <FormType>fmx</FormType>
+        </DCCReference>
         <DCCReference Include="ui\Sprite3DBuilderAssetsForm.pas">
             <Form>AssetsForm</Form>
             <FormType>fmx</FormType>

@@ -83,6 +83,12 @@ const
   //** @abstract(The name of the thumbnail cache's folder in SupportFolder, beside
   //** settings.json.)
   THUMBNAIL_FOLDER_NAME = 'thumbnails';
+  //** @abstract(The folder of group icons: in SupportFolder for the user's own, and, below
+  //** an @code(icons) folder beside the program or above it, for those that come with it;
+  //** see GroupIconsFolder.)
+  GROUP_ICONS_FOLDER_NAME = 'groups';
+  //** @abstract(The folder holding GROUP_ICONS_FOLDER_NAME beside the program or above it.)
+  ICONS_FOLDER_NAME = 'icons';
 
 type
   //** @abstract(The application's look: FMX's own default style, or one of the FMX styles
@@ -222,6 +228,12 @@ type
     //**
     //** @returns(The folder's full path, without a trailing path delimiter.)
     class function ThumbnailFolder: String; static;
+    //** @abstract(The user's own group icons: @code(icons/groups) in SupportFolder.)
+    //**
+    //** An icon chosen from elsewhere is copied here. Made when the first is.
+    //**
+    //** @returns(The folder's full path, without a trailing path delimiter.)
+    class function UserGroupIconsFolder: String; static;
     //** @abstract(Theme as a TSprite3DTheme.)
     //**
     //** A name in settings.json that is not one of the themes, such as one from an older
@@ -442,6 +454,16 @@ function IsModelFile(const AFileName: String): Boolean;
 //** @returns(The folder's full path, without a trailing path delimiter.)
 function AssetsFolder: String;
 
+//** @abstract(The group icons that come with the program: @code(icons/groups) beside the
+//** program or in one of the folders above it.)
+//**
+//** Looked for as AssetsFolder looks for the assets folder, so the repository's own is found
+//** when the program runs from its build folder.
+//**
+//** @returns(The folder's full path, without a trailing path delimiter; empty if there is
+//** none.)
+function GroupIconsFolder: String;
+
 //** @abstract(The model files in AFolder, not in its sub-folders, sorted by name.)
 //**
 //** A file counts if IsModelFile says it is a model, so a glTF's @code(.bin) and its
@@ -463,6 +485,70 @@ function AssetModelFiles(const AFolder: String): TArray<String>;
 //**
 //** @returns(The group's name; never empty for a name that is not.)
 function AssetGroupName(const AName: String): String;
+
+type
+  //** @abstract(A folder holding models of one format, as FindModelFolders finds it.)
+  TModelFolder = record
+    //** @abstract(The folder, as a full path.)
+    Folder: String;
+    //** @abstract(The format: the files' extension, in lower case with the dot.)
+    Format: String;
+    //** @abstract(How many model files of the format it holds.)
+    Count: Integer;
+    //** @abstract(Their names without the extension, in lower case, to tell when two
+    //** folders hold the same models.)
+    Names: TArray<String>;
+  end;
+
+//** @abstract(Every folder under ARoots, the roots among them, that holds model files: one
+//** entry for each folder and format in it, sorted by folder, then format.)
+//**
+//** For a model pack, which often holds the same models in several formats, each in its own
+//** folder (glTF, FBX, a second FBX for one engine, OBJ), so the user can choose which to
+//** take. A folder that cannot be read is passed over.
+//**
+//** @param(ARoots The folders to look in, and below.)
+//**
+//** @returns(The folders and formats found.)
+function FindModelFolders(const ARoots: TArray<String>): TArray<TModelFolder>;
+
+//** @abstract(The formats AFolders hold, best first, as MODEL_FORMAT_PREFERENCE orders them.)
+//**
+//** @param(AFolders The folders, from FindModelFolders.)
+//**
+//** @returns(The extensions.)
+function FoundModelFormats(const AFolders: TArray<TModelFolder>): TArray<String>;
+
+//** @abstract(Which of AFolders to take by default: those of format APreferred, or of the
+//** best format found if none has it, leaving out one whose models mostly have the names of
+//** one already taken, which would be the same models again.)
+//**
+//** @param(AFolders The folders, from FindModelFolders.)
+//**
+//** @param(APreferred The format the user prefers; empty for the best found.)
+//**
+//** @returns(One flag for each folder, in AFolders' order.)
+function DefaultModelFolders(const AFolders: TArray<TModelFolder>;
+  const APreferred: String): TArray<Boolean>;
+
+//** @abstract(A format's name for people: glTF, FBX, OBJ and so on.)
+//**
+//** @param(AExt The extension, with the dot.)
+//**
+//** @returns(The name; the extension itself, without the dot and in capitals, if it is not
+//** known.)
+function ModelFormatName(const AExt: String): String;
+
+//** @abstract(The model files in AFolder of the formats AFormats, not in its sub-folders,
+//** sorted by name.)
+//**
+//** @param(AFolder The folder.)
+//**
+//** @param(AFormats The extensions, with the dot; empty for every model format.)
+//**
+//** @returns(Their full paths.)
+function AssetModelFilesOf(const AFolder: String; const AFormats: TArray<String>):
+  TArray<String>;
 
 
 type
@@ -570,7 +656,7 @@ implementation
 
 uses
   System.Classes, System.Math, System.IOUtils, System.Hash, System.StrUtils,
-  System.Threading, System.SyncObjs, System.Generics.Collections,
+  System.Threading, System.SyncObjs, System.Generics.Collections, System.Generics.Defaults,
   OSPaths, JsonText, Sprite3DStyles, Sprite3DTitleBar,
   {$IF DEFINED(MSWINDOWS)}
   GpuPreference,
@@ -651,6 +737,12 @@ begin
   Result := OSFriendlyPath(TPath.Combine(SupportFolder, THUMBNAIL_FOLDER_NAME));
 end;
 
+class function TSprite3DAppSettings.UserGroupIconsFolder: String;
+begin
+  Result := OSFriendlyPath(TPath.Combine(TPath.Combine(SupportFolder, ICONS_FOLDER_NAME),
+    GROUP_ICONS_FOLDER_NAME));
+end;
+
 function Wrap360(const ADegrees: Single): Single;
 begin
   Result := ADegrees - 360 * Floor(ADegrees / 360);
@@ -676,6 +768,145 @@ const
   MODEL_EXTENSIONS: array[0..10] of String =
     ('.glb', '.gltf', '.fbx', '.obj', '.usdc', '.usda', '.usd', '.usdz', '.dae', '.stl',
      '.ply');
+  //** @abstract(The model formats, best first, for a pack that has several: glTF keeps
+  //** materials and bounds most faithfully in Gorilla3D, then FBX, then the rest.)
+  MODEL_FORMAT_PREFERENCE: array[0..10] of String =
+    ('.gltf', '.glb', '.fbx', '.dae', '.usdz', '.usdc', '.usd', '.usda', '.obj', '.ply',
+     '.stl');
+
+function FindModelFolders(const ARoots: TArray<String>): TArray<TModelFolder>;
+var
+  Found: TDictionary<String, Integer>;
+  Key, Folder: String;
+  Index: Integer;
+  Item: TModelFolder;
+
+  procedure Look(const ARoot: String);
+  var
+    Files: TArray<String>;
+  begin
+    try
+      Files := TDirectory.GetFiles(ARoot, '*', TSearchOption.soAllDirectories);
+    except
+      on Exception do
+        Exit;   // unreadable: as if empty
+    end;
+    for var FileName in Files do
+    begin
+      if not IsModelFile(FileName) then
+        Continue;
+      Folder := ExcludeTrailingPathDelimiter(ExtractFilePath(FileName));
+      Item.Format := LowerCase(ExtractFileExt(FileName));
+      Key := LowerCase(Folder) + '|' + Item.Format;
+      if not Found.TryGetValue(Key, Index) then
+      begin
+        Item.Folder := Folder;
+        Item.Count := 0;
+        Item.Names := nil;
+        Result := Result + [Item];
+        Index := High(Result);
+        Found.Add(Key, Index);
+      end;
+      Inc(Result[Index].Count);
+      Result[Index].Names := Result[Index].Names +
+        [LowerCase(TPath.GetFileNameWithoutExtension(FileName))];
+    end;
+  end;
+
+begin
+  Result := nil;
+  Found := TDictionary<String, Integer>.Create;
+  try
+    for var Root in ARoots do
+      if TDirectory.Exists(OSFriendlyPath(Root)) then
+        Look(OSFriendlyPath(Root));
+  finally
+    Found.Free;
+  end;
+  TArray.Sort<TModelFolder>(Result, TComparer<TModelFolder>.Construct(
+    function(const A, B: TModelFolder): Integer
+    begin
+      Result := CompareText(A.Folder, B.Folder);
+      if Result = 0 then
+        Result := CompareText(A.Format, B.Format);
+    end));
+end;
+
+function FoundModelFormats(const AFolders: TArray<TModelFolder>): TArray<String>;
+begin
+  Result := nil;
+  for var Ext in MODEL_FORMAT_PREFERENCE do
+    for var Item in AFolders do
+      if Item.Format = Ext then
+      begin
+        Result := Result + [Ext];
+        Break;
+      end;
+end;
+
+function DefaultModelFolders(const AFolders: TArray<TModelFolder>;
+  const APreferred: String): TArray<Boolean>;
+var
+  Wanted: String;
+  Taken: TDictionary<String, Boolean>;
+  Same: Integer;
+begin
+  SetLength(Result, Length(AFolders));
+  Wanted := LowerCase(APreferred);
+  if IndexText(Wanted, FoundModelFormats(AFolders)) < 0 then
+  begin
+    Wanted := String.Empty;
+    if Length(FoundModelFormats(AFolders)) > 0 then
+      Wanted := FoundModelFormats(AFolders)[0];
+  end;
+  Taken := TDictionary<String, Boolean>.Create;
+  try
+    for var I := 0 to High(AFolders) do
+    begin
+      Result[I] := False;
+      if AFolders[I].Format <> Wanted then
+        Continue;
+      // The same models again, as an engine's own copy of a format is
+      Same := 0;
+      for var Name in AFolders[I].Names do
+        if Taken.ContainsKey(Name) then
+          Inc(Same);
+      if Same * 2 > Length(AFolders[I].Names) then
+        Continue;
+      Result[I] := True;
+      for var Name in AFolders[I].Names do
+        Taken.AddOrSetValue(Name, True);
+    end;
+  finally
+    Taken.Free;
+  end;
+end;
+
+function ModelFormatName(const AExt: String): String;
+begin
+  case IndexText(AExt, ['.gltf', '.glb', '.fbx', '.obj', '.dae', '.stl', '.ply', '.usd',
+    '.usda', '.usdc', '.usdz']) of
+    0: Result := 'glTF';
+    1: Result := 'glTF binary';
+    2: Result := 'FBX';
+    3: Result := 'OBJ';
+    4: Result := 'Collada';
+    5: Result := 'STL';
+    6: Result := 'PLY';
+    7..10: Result := 'USD';
+  else
+    Result := UpperCase(AExt.TrimLeft(['.']));
+  end;
+end;
+
+function AssetModelFilesOf(const AFolder: String; const AFormats: TArray<String>):
+  TArray<String>;
+begin
+  Result := nil;
+  for var FileName in AssetModelFiles(AFolder) do
+    if (Length(AFormats) = 0) or (IndexText(ExtractFileExt(FileName), AFormats) >= 0) then
+      Result := Result + [FileName];
+end;
 
 function AllModelsFileSpec: String;
 begin
@@ -717,6 +948,27 @@ begin
     Folder := ExcludeTrailingPathDelimiter(ExtractFilePath(Folder));
   end;
   Result := ExcludeTrailingPathDelimiter(DefaultModelDir);
+end;
+
+function GroupIconsFolder: String;
+const
+  // The program's folder and this many above it
+  LEVELS_UP = 5;
+var
+  Folder, Candidate: String;
+begin
+  Folder := ExcludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)));
+  for var Level := 0 to LEVELS_UP do
+  begin
+    Candidate := TPath.Combine(TPath.Combine(Folder, ICONS_FOLDER_NAME),
+      GROUP_ICONS_FOLDER_NAME);
+    if TDirectory.Exists(Candidate) then
+      Exit(ExpandFileName(Candidate));
+    if ExtractFilePath(Folder) = String.Empty then
+      Break;   // at the top of the drive
+    Folder := ExcludeTrailingPathDelimiter(ExtractFilePath(Folder));
+  end;
+  Result := String.Empty;
 end;
 
 function AssetModelFiles(const AFolder: String): TArray<String>;

@@ -2,7 +2,7 @@
 
 Sprite3DBuilder is a Delphi FireMonkey application that will become a level builder for 3D model kits, such as KayKit's dungeon pack. It is built on [Gorilla3D](https://www.gorilla3d.de/) and grew out of [Sprite3D](https://github.com/peardox/Sprite3D): it keeps Sprite3D's view, camera, model loading and settings, and leaves out everything Sprite3D has for making sprites (grabs, icons, exports, the Results tab, backgrounds, projects and the debug tools).
 
-It starts with an empty level: a floor grid at the kit's spacing, ready to build on. File, Open Asset Folder... shows a kit's models as thumbnails, in groups; dragging them onto the level comes next.
+It starts with an empty level: a floor grid at the kit's spacing, ready to build on. File, Library... holds your collections of models, each shown as thumbnails in groups; dragging them onto the level comes next.
 
 The code is split as Sprite3D's is: everything in `src/lib` and `src/common` is independent of the application, and `src/ui` holds the forms and the application's own rules. The units in `src/lib` and `src/common` are copies of Sprite3D's, under the same names, so a fix in one can be carried to the other.
 
@@ -37,7 +37,8 @@ A build failing with *F2613 Unit 'Spritely.OrbitalCamera' not found* has not got
 ## Features
 
 - **An empty level.** The view starts with a floor grid at the spacing kept in `settings.json` (`gridSize`, 2 units by default, a floor tile of KayKit's dungeon pack), framed in the isometric view.
-- **File, Open Asset Folder...** chooses a folder of a model kit, starting in the `assets` folder (see *Assets*), or where the last one was chosen, and shows its models on the **Assets** form (see *Thumbnails*). Desktop only: Android and iOS have no folder dialog.
+- **File, Library...** opens the **Library** (see *Library*). At start it opens by itself, on the collection open last, if there are any collections. Desktop only: Android and iOS have no folder dialog to add collections with.
+- **File, Clear Thumbnails** deletes the thumbnail cache (see *Library*), after asking. If the Library is showing a collection, its thumbnails are made again at once. Desktop only, as the Library is.
 - **View, Camera.** Variable (a dialog with dials for the angles, distance, shift and rise), fixed views (Isometric, Pixel 2:1, 1/4 View, 3/4 View, Sqrt(2), Golden Ratio, Head On, Top Down, Side View), Lock Camera, and Mouse View (left-drag turns, the wheel zooms, a right click puts the normal view back).
 - **View, Lights.** The camera's headlight and a second light on the camera, each on or off.
 - **View, Projection.** Perspective, orthographic, and the oblique cavalier, cabinet, military and plan oblique projections, drawn by Spritely.
@@ -48,15 +49,29 @@ A build failing with *F2613 Unit 'Spritely.OrbitalCamera' not found* has not got
 
 On Android and iOS the menu is a drawer opened from a button at the top; on Linux it is an FMX menu bar, as GTK's native one showed only first letters.
 
-## Thumbnails
+## Library
 
-The Assets form shows every model of the folders chosen (not their sub-folders) as a 256 x 256 thumbnail, under a heading for each group: the first word of the model's name, before the first underscore (`wall_corner` is in *wall*), with a plural group such as *crates* put with *crate* when both are there. Clicking one shows its name, group, size in its own units and file.
+The Library holds collections: sets of models, each from one or more folders (not their sub-folders), arranged in groups, such as *Kaykit Dungeon*. A new user has none, so the first thing to do is **Add New Asset Collection...**, at the top right: choose its folder, usually the root of the pack, starting in the `assets` folder (see *Assets*) or where the last was chosen, then give it a name. The folder and every folder below it are searched for models. Packs often hold the same models in several formats, each in its own folder (KayKit's Dungeon Pack has `gltf`, `fbx`, `fbx(unity)` and `obj`): if models are found in more than one folder or format, **Choose Folders to Import** lists them, each with its format and count, and ticks those of your *preferred format* (remembered), leaving out a folder that repeats the models of one already ticked; tick what you want. If there is only one, it is just added. A collection remembers each folder with the format taken from it. The drop-down at the top left chooses the collection shown; **...** beside it renames it or deletes it from the library (its models, folders and thumbnails stay). **Add Artist Collections...** makes many at once: choose a folder holding packs, such as everything one artist has made, and each folder directly inside it becomes a collection named after it. The first one asks which format you want, and that becomes the default for the rest; a pack with the default format just gets it, engine copies left out. A pack with none of your formats so far asks again: *Import* takes the format you choose as your next default (so glTF first, then FBX, and so on), *Skip* passes it over, *Only My Defaults* passes over it and every later one like it, *Stop* ends there. Packs with no models, or named as a collection you have already, are passed over. Then every new collection is imported in full, one after another, its folders read and its thumbnails made, the status line saying which of how many; this can take a while for a big folder. At the end the first is shown, with a summary of what was done. Choosing another collection or closing the Library stops it there; the rest are imported as each is opened. (Adding folders to an existing collection will come with drag and drop.) **Rescan** reads its folders again for models added, changed or removed. A collection otherwise opens straight from what was saved, without reading its folders.
+
+A collection shows every model as a 256 x 256 thumbnail. The groups are down the left, a button each with its icon above its name and how many models it has; clicking one, or Up and Down, chooses it, and it stays chosen until another is. Its thumbnails fill the right. A model's group is the first word of its name, before the first underscore (`wall_corner` is in *wall*), with a plural group such as *crates* put with *crate* when both are there, unless it has been moved.
+
+Groups nest, as folders do. Drag a group into the grid and it goes inside the group shown; onto a group's tile in the grid or a button on the left, inside that one; below the buttons, back to the top. The left shows the top groups; the groups inside the one shown are tiles at the start of its grid, opened with a double-click, and the bar above the grid shows where you are, with *Up* (or Backspace) to go up. A right-click on the grid adds a group inside the one shown. Group names are unique at every level, and a group's count takes in the groups inside it. *Delete Group* needs it to have no models and no groups inside.
+
+The view at the top left says *Model Preview* while it has no model to show.
+
+Thumbnails are picked as files are: click, Control-click to add or take one away, Shift-click for a run. Dragging a picked thumbnail onto another group moves every picked model there. Groups are in alphabetical order, case ignored, at every level. A drag held at the top or bottom edge of the groups or the grid scrolls it. A right-click on the groups opens a menu: *Add Group...*, *Rename Group...*, *Change Icon...*, and *Delete Group* for a group with no models anywhere. (Placing a model on the level, next, will take one at a time.)
+
+A group's icon is the one chosen for it, or else an icon of the library named after the group (`wall.svg` or `wall.png`), or else its first model's thumbnail. The library is `icons/groups` beside the program or above it (the repository's), then the user's own, `icons/groups` beside `settings.json`, where an icon chosen from anywhere else is copied. Icons are PNG, or SVG drawn as filled shapes, such as those of [game-icons.net](https://game-icons.net); an SVG is drawn in one light colour. The icons in the repository are placeholders drawn by `tools/make_group_icons.py`.
+
+A collection's groups, where each is, their icons and which models are in each are its palette. The library, every collection (its folders and formats, models and palette) and every model's metadata are kept in one SQLite database, `library.db` beside `settings.json`, through FireDAC, so everything comes back next time; collections are written in one transaction. FireDAC's SQLite driver is in every edition of RAD Studio, Community included, with SQLite linked into the program on Windows and macOS and the system's used elsewhere; SQLite is public domain. The JSON files of before the database are moved into it as they are come upon: `library.json` and `collection-<id>.json` the first time the Library opens (renamed `.moved`), each model's `.json` as it is first read (deleted). The one `palette.json` of before the library became the collection *Kaykit Dungeon* and was renamed `palette.json.moved`.
+
+Clicking a thumbnail shows its name, group, size in its own units and file, and, once every thumbnail has been made, the model itself in the view at the top left, in the thumbnails' view. Dragging across the view turns it, dragging up and down tilts it, the wheel zooms, and a right-click (or Control-click) puts the thumbnails' view back. While thumbnails are being made, the view shows each model as it is made.
 
 Each model is known by a key: the SHA-256 of its file and of every file it names (for glTF, the `uri` of its buffers and images), so a copy of a model in another folder is the same model, and any change to it, its `.bin` or its textures makes a new one. Two files with the same key are shown once, and the Debug tab says so.
 
-Thumbnails are made the first time a model is seen, one at a time, in the form's own view: loaded, turned upright, framed in the isometric view in orthographic projection with the up axis through its centre of rotation, the point it will sit on in the level, in the middle across (so a corner piece is drawn to one side, as it sits in its cell), and grabbed off screen with a transparent background, as Sprite3D's grabs are. They are kept in a `thumbnails` folder beside `settings.json`, as `<key>.png` with `<key>.json` beside it: the model's name, group, the file it was found as, the files it names, its bounding box (in its own units, so kits made at other scales can be told apart and scaled later), and how and when the thumbnail was made. The next time, every model already in the cache is shown at once. A thumbnail of another size than 256 is made again, so changing the size remakes them. Closing the form stops making them; opening the folder again carries on.
+Thumbnails are made the first time a model is seen, one at a time, in the form's own view: loaded, turned upright, shown in the view for a moment, framed as Sprite3D frames a model, in the isometric view in orthographic projection: the volume its box sweeps turning about the up axis through its centre of rotation is fitted, with the camera's target on that axis, and grabbed off screen with a transparent background, as Sprite3D's grabs are. They are kept in a `thumbnails` folder beside `settings.json`, as `<key>.png`, in two levels of folders named after the key's first two digits (`3/f/3fa9....png`), so no folder holds more than a share of them. Each model's metadata goes in the database: its name, group, the file it was found as, the files it names, its bounding box (in its own units, so kits made at other scales can be told apart and scaled later), and how and when the thumbnail was made. The next time, every model already in the cache is shown at once. A thumbnail of another size than 256 is made again, so changing the size remakes them. While they are being made, the status line counts them and, after the first few, says about how long is left. Closing the form stops making them; opening the collection again carries on.
 
-The cache can be deleted at any time; nothing is lost but the time to make the thumbnails again.
+The cache can be deleted at any time, with File, Clear Thumbnails or by hand; nothing is lost but the time to make the thumbnails again. Clear Thumbnails leaves the library and its collections. As each thumbnail is made, the Debug tab gets a line with the model's box and the camera's distance and orthographic height, to check a thumbnail by.
 
 ## Project layout
 
@@ -71,7 +86,9 @@ src/
   styles/                        the theme styles and buildstyles.cmd, the pre-build step
 licences/                        third-party licences linked into the program
 assets/                          model kits for the builder, such as assets/kaykit/dungeon (glTF); git ignores it
+icons/groups/                    group icons for the Library (placeholders, made by the script below)
 tools/pasdoc_check.py            checks the PasDoc comments and that sources are ASCII
+tools/make_group_icons.py        draws the placeholder group icons (needs Pillow)
 docs/licences-required.md        what each third-party part asks of a release
 ```
 
@@ -79,7 +96,7 @@ docs/licences-required.md        what each third-party part asks of a release
 
 ## Assets
 
-Model kits live in `assets/`, off the repository root, one folder per kit: so far `assets/kaykit/dungeon`, KayKit's Dungeon Pack as glTF. Git ignores the whole folder, so each working copy brings its own kits. File, Open Asset Folder... starts there: the program looks for an `assets` folder beside itself and up to five folders above, so it finds the repository's when run from `src/Win64/Debug`.
+Model kits live in `assets/`, off the repository root, one folder per kit: so far `assets/kaykit/dungeon`, KayKit's Dungeon Pack as glTF. Git ignores the whole folder, so each working copy brings its own kits. Add New Asset Collection... starts there: the program looks for an `assets` folder beside itself and up to five folders above, so it finds the repository's when run from `src/Win64/Debug`.
 
 ## Settings
 
@@ -110,6 +127,6 @@ Every file the application opens or writes goes through `OSFriendlyPath` in `com
 ## Known issues
 
 - Nothing can be placed yet: the level is the grid alone. Dragging a thumbnail onto it is next.
-- On macOS and iOS, where Gorilla3D draws through Metal, a thumbnail is a screenshot of the Assets form's view, as Sprite3D's grabs are there.
+- On macOS and iOS, where Gorilla3D draws through Metal, a thumbnail is a screenshot of the Library's view, as Sprite3D's grabs are there.
 - The camera is fitted to the middle of the floor, 10 cells across, whatever is placed; it will frame the level once there is one.
 - The camera view and View menu ticks are saved when the main form is destroyed, which Android and iOS do not always do before ending an application.

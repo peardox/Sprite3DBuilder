@@ -1,9 +1,9 @@
 //** @abstract(Sprite3DBuilder: a level builder for 3D model kits, grown from Sprite3D.)
 //**
 //** The program starts with an empty level: a floor grid in a Gorilla3D viewport, framed by
-//** the Spritely package's orbital camera, @code(TSpritelyOrbitalCamera). File, Open Asset
-//** Folder chooses a folder of a model kit to build from, whose models TAssetsForm shows as
-//** thumbnails, cached by a hash of each model. TMainForm, in Sprite3DBuilderMain, holds the
+//** the Spritely package's orbital camera, @code(TSpritelyOrbitalCamera). File, Library opens
+//** TAssetsForm, the user's collections of models to build from, shown as thumbnails, cached
+//** by a hash of each model. TMainForm, in Sprite3DBuilderMain, holds the
 //** view and every command. On Windows FastMM5 is the memory
 //** manager, and with REPORT_LEAKS defined it writes every leak still allocated at shut-down,
 //** in full, to Sprite3DBuilder_MemoryManager_EventLog.txt beside the executable. Builds for
@@ -21,9 +21,9 @@ program Sprite3DBuilder;
 
   The program starts with an empty level: a floor grid in a Gorilla3D
   viewport, framed by the Spritely package's orbital camera,
-  TSpritelyOrbitalCamera. File, Open Asset Folder chooses a folder of a
-  model kit to build from, whose models TAssetsForm shows as thumbnails,
-  cached by a hash of each model. TMainForm, in Sprite3DBuilderMain, holds
+  TSpritelyOrbitalCamera. File, Library opens TAssetsForm, the user's
+  collections of models to build from, shown as thumbnails, cached by a
+  hash of each model. TMainForm, in Sprite3DBuilderMain, holds
   the view and every command. On Windows FastMM5 is the memory manager, and with
   REPORT_LEAKS defined it writes every leak still allocated at shut-down, in
   full, to Sprite3DBuilder_MemoryManager_EventLog.txt beside the executable.
@@ -62,6 +62,9 @@ uses
   Sprite3DResample in 'lib\Sprite3DResample.pas',
   Sprite3DOffscreen in 'lib\Sprite3DOffscreen.pas',
   Sprite3DAssetCache in 'lib\Sprite3DAssetCache.pas',
+  Sprite3DGroupIcons in 'lib\Sprite3DGroupIcons.pas',
+  Sprite3DBuilderImportForm in 'ui\Sprite3DBuilderImportForm.pas' {ImportForm},
+  Sprite3DBuilderFormatForm in 'ui\Sprite3DBuilderFormatForm.pas' {FormatForm},
   Sprite3DBuilderAssetsForm in 'ui\Sprite3DBuilderAssetsForm.pas' {AssetsForm},
   Sprite3DBuilderLicencesForm in 'ui\Sprite3DBuilderLicencesForm.pas' {LicencesForm};
 

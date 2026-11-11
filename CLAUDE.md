@@ -5,7 +5,7 @@ the owner works, the rules for the code, and where the work has got to.
 `README.md` describes the program for its users and developers; this file
 is for Claude. Read both.
 
-Last updated: 10 November 2026, 23:10.
+Last updated: 11 November 2026, 04:20.
 
 ## Starting a new conversation
 
@@ -406,18 +406,71 @@ onto the view is stage two, Builder4), follows Builder2:
   the rest one at a time in its own `TGorillaViewport` (256 square, top
   left) with its own `TSpritelyOrbitalCamera`: model upright (X 180),
   isometric (inclination 35.264, camera azimuth 315), orthographic,
-  `FitToBounds` with a 6% margin on the model's own box from
-  `LoadModelFile` made even in X and Z about its `RotationCenter`
-  (Builder3a, owner: centred on the centre of rotation), `TSprite3DOffscreen` at `THUMBNAIL_SIZE`
-  (256), transparent. Tiles laid out by hand (`LayoutTiles`), headings per
-  group (`AssetGroupName`, plurals merged with their singulars), clicking
-  selects. Closing it stops the queue. It logs to the Debug tab through
-  `OnLog`.
+  framed as Sprite3D frames a model (Builder3c, owner 23:25, comparing
+  `bar_innercorner` with Sprite3D's: cut off and off-centre before):
+  `FitCameraToSweep(FCamera.Camera, FModel, CalcSweptVolume(FModelBox,
+  FModel.RotationCenter.Point, saY), W, H, 0.06)`, i.e. the camera's
+  `FitPointsOnAxis`, target on the turning axis. `FModelBox` is
+  `LoadModelFile`'s box, before the upright turn. Builder3a's even box with
+  `FitToBounds(ABox, ASpace, ...)` and Builder3b's camera stand-off are
+  gone. `TSprite3DOffscreen` at `THUMBNAIL_SIZE` (256), transparent. Each
+  thumbnail logs its box, distance and ortho height to the Debug tab.
+  Builder3d (owner 23:33): each model is on screen `THUMBNAIL_SETTLE_MS`
+  (120) before its grab (`FSettleTimer`), so the view shows it and it has
+  been drawn once; groups in `GroupsList` (TListBox, left,
+  `GroupsSplitter`), the chosen group's tiles on the right (`LayoutTiles`
+  hides the rest; `FEntries` in name order, never resorted, so indices in
+  tiles and the queue hold); dragging a tile onto a group item moves it
+  (`MoveToGroup`; "New group..." asks with `TDialogService.InputQuery`);
+  once the queue is empty, the selected
+  model is previewed in the viewport (`ShowPreview`) with a mouse view on
+  `PreviewArea`: drag turns (azimuth) and tilts (polar angle, all the
+  way round), wheel zooms (ortho height), right or Control-click resets. Group from
+  `AssetGroupName`, plurals merged with their singulars, unless chosen
+  (`GroupChosen`). Closing it stops the queue. `MakeNextLater` is a
+  1 ms `FNextTimer` (an anonymous `TThread.ForceQueue` and an anonymous
+  `TDialogService.InputQuery` close proc would not compile here, E2250);
+  the new-group name comes back through the method overload
+  (`NewGroupClosed`). It logs to the Debug tab through `OnLog`.
+  Builder3i (owner 00:05, 00:09): FMX drag and drop (`BeginAutoDrag`)
+  crashed Windows' drag session (class not found,
+  dragdropsession_initialize) and dropped nowhere, so the drags are the form's own: tiles
+  and group items have `AutoCapture`, a move of `TILE_DRAG_START` starts
+  the drag, `FDragGhost` (the thumbnail, 72 px) follows a tile,
+  `GroupItemAt` (`ItemByPoint`) finds the item under the pointer and
+  `SetDropItem` marks it (a `TRectangle` in each item's `TagObject`), and
+  the mouse-up drops. FMX drag and drop works if started properly (owner
+  00:11, the FMX.DragAndDrop sample: from mouse-down), but is Windows and
+  macOS only and hands the drag loop to the system, so it is not used
+  here. Group items are
+  40 high, text 15. Dragging a group onto another puts it before that one,
+  onto "New group..." last; clicking "New group..." makes an empty group;
+  right or Control-click on a group with no models anywhere removes it.
+  Anything that rebuilds `GroupsList` from one of its own handlers goes
+  through `Defer` / `DeferredWork` (`FDeferTimer`), so no item is freed in
+  its own event. The palette (`FGroupOrder`, `FPaletteGroups` key to
+  group, for every model ever seen, not just this folder's) is loaded in
+  `HashesDone`, gets every model of the folder and new groups (sorted)
+  last, and is saved by `SavePalette` after every change; `BuildGroups`
+  lists a group if the folder has models in it or it has none anywhere,
+  so other kits' groups are kept but hidden.
 - `src/lib/Sprite3DAssetCache` (new): `TSprite3DAssetHasher` (SHA-256 of
   the model file, then, for `.gltf`, each buffer and image `uri` and that
   file's digest, digests kept per hasher so a shared texture is read once),
   `TSprite3DAssetMeta`, `SaveAssetMeta` (through a `.tmp`),
-  `LoadAssetMeta` (checks every value; format `Sprite3D asset`, version 1).
+  `LoadAssetMeta` (checks every value; format `Sprite3D asset`, version 1),
+  `ClearAssetCache` (Builder3b: deletes only `<64 hex>.png`, `.json` and
+  `.json.tmp`, so the palette stays), `LoadAssetPalette` and
+  `SaveAssetPalette` (Builder3i, replacing Builder3d's `groups.json`,
+  which can be deleted: `palette.json`, format `Sprite3D asset palette`,
+  version 1, `groups`: an array of `name` and `models`, the keys in
+  order; `TSprite3DPaletteGroup`). JSON while it is worked on; the owner
+  wants BSON in the long run (`System.JSON.BSON`), and only those two
+  functions know the format.
+- File, **Clear Thumbnails** (Builder3b, owner 23:09; desktop only, freed
+  on mobile with Open Asset Folder): asks with `TDialogService`, then
+  `TAssetsForm.ClearThumbnails` (reopens `FFolders` if showing) or, before
+  the form exists, `ClearAssetCache` directly.
 - Cache: `TSprite3DAppSettings.ThumbnailFolder`, `thumbnails` beside
   settings.json, `<hash>.png` and `<hash>.json`. The metadata's `file` is
   where the model was when its thumbnail was made.
@@ -429,11 +482,172 @@ Files deleted by Builder2 (`git rm`): `src/lib/Sprite3DAxes.pas`,
 `src/ui/Sprite3DBuilderNameClashForm.*`,
 `src/ui/Sprite3DBuilderAnimationsUsedForm.*`.
 
-None of the zips compiled yet. Things to watch at the first compile: anything
-left behind by the cuts, and the `.dproj`, made from Sprite3D's with its
-deployment of `dlls/` and its project outputs removed (the IDE adds its own
-outputs back). The project's `.res` (`src/Sprite3DBuilder.res`) is not in
-the repository; the IDE makes it.
+Builder3a runs (owner's screenshot of the Assets form, 22:59; pushed as
+"Debug", 23:09, with the IDE's `.dproj`, `src/Sprite3DBuilder.res` and
+`licences/Sprite3DLicences.res`). Some thumbnails were wrong: `coin` blank,
+`floor_foundation_allsides` cut at the top, the half-cell pieces
+(`floor_foundation_diagonal_corner`, `floor_tile_small_corner`) to one
+side; their glTF bounds are all even about the origin across, and the
+half-cell pieces really are half a cell. After Builder3c (Sprite3D's sweep
+fit) the same few seemed to stay bad (owner 23:33), hence the
+preview in Builder3d; with Builder3e and the cache cleared every thumbnail
+is right (owner 23:50): the bad ones had been the old cache. Slow (the
+120 ms settle per model among it) but a one-time import, which the owner
+accepts. Builder3f: the unused `TMainForm.UpdateView` removed (H2219).
+Builder3g: the preview's turn was backwards (owner 23:55); it now adds the
+pointer's move to the camera's Azimuth, as the main form's mouse view does.
+Builder3h: the tilt is no longer held to +-89; it goes right round, kept in
+0..360 by `Wrap360` (owner 00:01: the orbital camera's gimbals have no lock).
+Builder3i: the palette and the form's own drags; see the Assets form above.
+Builder3j (owner 00:27-00:29): `GroupsList` (TListBox; its hover was
+disliked) replaced by `GroupsBox` (TVertScrollBox) of group buttons
+(`FGroupTiles`, TRectangle, `GROUP_TILE_HEIGHT` 66: icon 32 above
+"name (count)"); a click chooses (fill), Up/Down in `FormKeyDown` (scroll
+boxes `CanFocus` False so the form gets the keys); the drop target gets an
+outline only during a drag. "New group..." is gone: `GroupMenu`
+(TPopupMenu, opened by hand from mouse-up, right or Control-click) has Add
+(after the group clicked), Rename (case-insensitive clash refused),
+Change Icon (`IconDialog`; an icon from outside the libraries is copied
+into `UserGroupIconsFolder`) and Delete (only with no models anywhere).
+Thumbnails multi-pick (`Picked`; click, Control, Shift run from `FAnchor`;
+a plain press on a picked one keeps the picks until mouse-up, so they can
+be dragged together); the drag ghost shows the count; `MoveEntries`.
+Group reorder: drop on a group = before it, below all = last
+(`GroupTileAt`'s `ABelow`), still through `Defer`. Icons: palette groups
+gained `icon` (a plain file name; `TSprite3DPaletteGroup.Icon`); lookup
+`IconFile`: `TSprite3DAppSettings.UserGroupIconsFolder`
+(SupportFolder/icons/groups) then `GroupIconsFolder` (icons/groups beside
+or above the exe, as `AssetsFolder` looks); default `<group>.svg/.png`,
+else the group's first thumbnail. New lib unit `Sprite3DGroupIcons`:
+`LoadGroupIcon` (PNG as is; SVG: every `path d` filled in one colour in
+viewBox units, a full-view-box background square skipped, so
+game-icons.net style). `icons/groups/*.png`: 40 placeholders drawn by
+`tools/make_group_icons.py` (ours, no licence). The owner suggested a
+large free vector icon library: game-icons.net (CC BY 3.0, needs credit in
+docs/licences-required.md and the licences resource if shipped) is the
+fit; it cannot be downloaded from here.
+Builder3k (owner 01:04): "Model Preview" (`FPreviewLabel`, over the
+viewport, shown while `FModel` is nil; `UpdatePreviewLabel` from
+`FreeModel` and `LoadEntryModel`). Nested groups: `FGroupParents` (lower-
+case group -> parent name; root has none), palette groups gained `parent`
+(`TSprite3DPaletteGroup.Parent`; a missing parent or a loop is dropped in
+`HashesDone`, walks bounded by `Length(FGroupOrder)`). Names stay globally
+unique, so `FPaletteGroups` and `Meta.Group` are unchanged. Left bar: top
+groups only, count = `FolderTotal` (with the groups inside); chosen mark on
+`RootOf(FGroup)`. Grid: `BuildFolderTiles` (inner groups first,
+`FOLDER_FILL`, double-click via `ssDouble` opens, deferred `FOpenGroup`),
+`TilesPanel` (outline = drop into the group shown), `PathBar` (`UpButton`,
+`PathLabel`, Backspace). Group drags: `TrackGroupDrag` / `DropGroup`; from
+a button onto a button = reorder at the top, from the grid onto a button =
+inside it, onto a folder tile = inside it, onto the grid = inside the one
+shown, below the buttons = top, last (`Reparent`, through `Defer`). Model
+drags can drop on folder tiles too. Delete needs `GroupEmpty` (no models
+anywhere, no inner groups); Add from the grid adds inside the one shown.
+Builder3l (owner 01:33): groups alphabetical, case ignored, at every
+level (`ChildGroups` sorts), so the reorder drag is gone: a group dropped
+on a button or tile goes inside it, below the buttons to the top
+(`FMoveGroup`/`FMoveBefore` removed). Drags auto-scroll: `FScrollTimer`
+(40 ms) while dragging, `EdgeScroll` within 28 px of (or past) the top or
+bottom of `GroupsBox` or `TilesBox`, faster further out; then the drop is
+tracked again (`TrackTileDrag`, `TrackGroupDrag`); `BeginDrag` starts it,
+`EndDrag` stops it. At start, `FormShow` queues `OpenLastAssets`
+(`TThread.ForceQueue` with a method): if the cache has `palette.json` and
+settings' `AssetFolder` still exists, the Assets form opens on it
+(`OpenAssets`, also used by File, Open Asset Folder). Desktop only.
+Builder3m (owner 01:52, answers 02:00): a Library above palettes. The
+Assets form (`TAssetsForm`, caption "Library - <collection>") gained
+`CollectionBar` along the top: `CollectionCombo` (open collection),
+`CollectionMenuButton` "..." (`CollectionMenu`: Rename, Delete from the
+library, files and thumbnails kept), `AddFolderButton`, `RescanButton`, and
+`AddCollectionButton` "Add New Asset Collection..." (`SelectFolders`, then
+a name; folder's name suggested). Lib: `TSprite3DAssetLibrary`
+(`library.json`: collections id+name, `last`, `lastFolder`),
+`TSprite3DAssetCollection` (`collection-<id>.json`: name, folders,
+`scanned`, groups as the palette, `models` key+file), `NewCollectionId`
+(GUID), `Load/SaveAssetLibrary`, `Load/SaveAssetCollection`,
+`DeleteAssetCollection`; `SaveAssetPalette` gone, `LoadAssetPalette` only
+reads the old `palette.json`, which `LoadLibrary` turns into "Kaykit
+Dungeon" (folder = settings' `AssetFolder`, via `MigrationFolder`, not
+scanned) when there is no library, then renames to `palette.json.moved`.
+Owner chose: open from what was saved (`OpenCollection` feeds the saved
+models to `HashesDone` with no hashing), scanning only when the
+collection was never scanned or on Rescan/Add Folder (`ScanCollection`,
+`FScanning` marks it scanned). `SavePalette` writes the whole collection.
+Main: File, Open Asset Folder became File, **Library...** (`LibraryItem`,
+`OpenLibrary`, `OpenLastLibrary` at start if the library has collections
+or the old palette is there); `FAssetFolders`, `OpenAssets` gone; the
+form's `OpenFolders` became `ShowLibrary` and private `ScanCollection`.
+Builder3n (owner 02:09): users pick a pack's root, which holds the same
+models in several formats (KayKit free: Assets/gltf, fbx, fbx(unity),
+obj). Helpers: `TModelFolder` (Folder, Format ext, Count, Names),
+`FindModelFolders` (recursive, one entry per folder and format),
+`FoundModelFormats` (by `MODEL_FORMAT_PREFERENCE`: gltf, glb, fbx, dae,
+usd*, obj, ply, stl), `DefaultModelFolders` (ticks the preferred format,
+skipping a folder whose names are mostly already ticked: the engine
+copy), `ModelFormatName`, `AssetModelFilesOf` (format filter). New dialog
+`Sprite3DBuilderImportForm` (`TImportForm`, `ChooseModelFolders`: one
+folder taken without asking, several asked, modal, checkbox list,
+preferred-format combo). Collections hold `Sources`
+(`TSprite3DCollectionSource`: folder + formats; JSON `sources`, old
+`folders` read as every format); the library holds `PreferredFormat`.
+`ChooseSources` in the Library form for Add New Asset Collection and Add
+Folder; `ScanCollection` scans each source with its formats.
+Builder3o (owner 02:37): the owner now tests from a data drive of
+thousands of assets; the assets folder is to go soon. Add Folder removed
+from the Library (to come back as drag and drop). Library wider (1120)
+with `Constraints` 960 x 640. **Add Artist Collections...**
+(`AddArtistButton`, `AddArtistButtonClick`): each folder directly inside
+the folders chosen becomes a collection named after it (skipped if the
+name is taken, or no models); an ordered list of default formats grows as
+it goes: the first folder asks (`Sprite3DBuilderFormatForm`, `AskFormat`:
+Import / Skip / Only My Defaults / Stop), a folder with a default takes
+the first one it has without asking (`DefaultModelFolders` leaves engine
+copies out), one with none asks again (Import appends a default). Made
+with `NewCollection` (also used by Add New Asset Collection), not scanned
+until first opened; the first is opened; summary message at the end;
+`Defaults[0]` becomes the library's `PreferredFormat`.
+`Progress` is shown only while reading folders or making thumbnails (owner
+02:38: it stayed full after an import).
+Builder3p (owner 02:39): time left while making thumbnails: `FMakeWatch`
+(TStopwatch from the queue's start), shown after `ETA_AFTER` (3) made as
+"about 1m 20s left" (`DurationText`), and the total time in the log.
+Builder3q (owner 02:51): Add Artist Collections imports every collection
+it makes in full, in one go, not when each is first opened: `FBulkQueue`
+of new ids, `NextBulk` opens each (scan + thumbnails); `MakeNext`'s
+end, when `FBulkTotal` > 0, sets `FBulkPending` and `Defer`s, and
+`DeferredWork` calls `NextBulk`; status prefixed by `BulkPrefix`
+("Collection 3 of 12, name: "); at the end the first is opened and the
+summary shown. `StopBulk` when another collection is chosen, the Library
+closes, or a new artist import starts.
+Builder3r (owner 02:55): thumbnail and metadata files go in
+`AssetKeyFolder` = `<cache>/<key[0]>/<key[1]>/` (256 folders at most);
+`LoadAssetMeta` first moves a key's flat files from the top
+(`MoveFlatFiles`); `ClearAssetCache` walks every folder (only key files
+in their own key folder or at the top), then removes empty key folders;
+the form makes the key folder before saving a thumbnail.
+Builder3s (owner 02:58-03:01, Enterprise; FireDAC SQLite is in
+Community/Professional too): one SQLite database, `library.db` in the
+settings folder (`AssetDatabaseFile` = parent of the cache folder), all in
+`Sprite3DAssetCache`, same public functions as before, now DB-backed via
+FireDAC (static SQLite on Windows/macOS through
+`FireDAC.Phys.SQLiteWrapper.Stat`, `FireDAC.FMXUI.Wait`), one
+`TFDConnection` per database file (`Databases`, main thread only, freed at
+finalization), WAL, `PRAGMA user_version` = `ASSET_DATABASE_VERSION` (1).
+Tables: `library` (one row: last_id, last_folder, preferred_format),
+`collections` (id, name, position, scanned), `sources` (collection_id,
+position, folder, formats space-separated), `palette_groups`
+(collection_id, position, name, icon, parent), `group_models`
+(collection_id, group_position, position, model_key), `models`
+(collection_id, position, model_key, file), `meta` (model_key, name, grp,
+file, files newline-separated, min/max x/y/z, thumb_width/height,
+thumb_view, created). Names avoid SQLite keywords (groups, key, view,
+last). `SaveAssetCollection` replaces the collection's rows in one
+transaction (new ones go last by position); `SaveAssetLibrary` upserts
+names and positions. Migration: `LoadAssetLibrary` on an empty `library`
+table moves `library.json` + `collection-*.json` in (renamed `.moved`);
+`LoadAssetMeta` moves a key's `.json` in when the DB lacks it (then
+deletes it). `ClearAssetCache` = files + `DELETE FROM meta`. JSON writers
+gone; JSON readers kept private as `ReadLegacy*`; BSON plan dropped.
 
 **Next, Builder4:** dragging a thumbnail from the Assets form onto the
 level, with a bounding box showing where it will go, snapped to the grid,

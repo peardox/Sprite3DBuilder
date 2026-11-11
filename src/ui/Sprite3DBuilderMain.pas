@@ -6,9 +6,9 @@
 //** spacing kept in settings.json @(2 units at first, a floor tile of the dungeon kit@). The
 //** Debug tab holds a memo for log output, and is always there.
 //**
-//** File, Open Asset Folder chooses a folder of a model kit, starting in the assets folder off
-//** the repository root, and lists its models in the Debug tab; they will open on a form for
-//** choosing pieces, still to come.
+//** File, Library opens the Library, TAssetsForm: the user's collections of models, each
+//** arranged in groups, from which pieces will be placed. At start it opens by itself if
+//** there are any.
 //**
 //** The camera starts in the isometric view, fitted to the middle of the floor. View, Camera,
 //** Variable lets the dials of the Variable camera dialog set the angles, the distance, the
@@ -38,7 +38,7 @@
 //**
 //** MainMenu1
 //** |-- FileMenu "File"
-//** |   |-- OpenAssetFolderItem "Open Asset Folder..."  a folder of a kit; desktop only
+//** |   |-- LibraryItem "Library..."   the collections of models; desktop only
 //** |   |-- SettingsMenuItem "Settings..."  opens the general settings dialog
 //** |   |-- LicencesMenuItem "Licences..."  the third-party licences, from the program's resources
 //** |   |-- FileSeparatorItem "-"
@@ -84,9 +84,9 @@ unit Sprite3DBuilderMain;
   first, a floor tile of the dungeon kit). The Debug tab holds a memo for
   log output, and is always there.
 
-  File, Open Asset Folder chooses a folder of a model kit, starting in the
-  assets folder off the repository root, and lists its models in the Debug
-  tab; they will open on a form for choosing pieces, still to come.
+  File, Library opens the Library, TAssetsForm: the user's collections of
+  models, each arranged in groups, from which pieces will be placed. At
+  start it opens by itself if there are any.
 
   The camera starts in the isometric view, fitted to the middle of the
   floor. View, Camera, Variable lets the dials of the Variable camera dialog
@@ -99,7 +99,7 @@ unit Sprite3DBuilderMain;
 
   On Android and iOS FMX shows no main menu, so MainMenu1 is offered through
   a hamburger button on a toolbar at the top, which opens a drawer listing
-  every item in MainMenu1; Open Asset Folder is left out there, as there is
+  every item in MainMenu1; Library is left out there, as there is
   no folder dialog. On Linux MainMenu1 is replaced, first thing in
   FormCreate, by a TMenuBar that FMX draws itself, as the native GTK menu
   bar showed only the first letter of each item; the items must be copied,
@@ -118,7 +118,7 @@ unit Sprite3DBuilderMain;
 
     MainMenu1
     |-- FileMenu "File"
-    |   |-- OpenAssetFolderItem "Open Asset Folder..."  a folder of a kit; desktop only
+    |   |-- LibraryItem "Library..."   the collections of models; desktop only
     |   |-- SettingsMenuItem "Settings..."  opens the general settings dialog
     |   |-- LicencesMenuItem "Licences..."  the third-party licences, from the program's resources
     |   |-- FileSeparatorItem "-"
@@ -165,7 +165,7 @@ uses
   FMX.StdCtrls, FMX.Objects, FMX.Objects3D, Gorilla.Camera, Spritely.OrbitalCamera, Spritely.Projection, FMX.Menus,
   Sprite3DBuilderHelpers, Sprite3DBuilderOrbitalForm, Sprite3DBuilderSettingsForm,
   FMX.ListBox, Sprite3DSweep, System.Threading, Gorilla.Animation, DisplayData, Sprite3DGrid,
-  System.Generics.Collections, Sprite3DBuilderAssetsForm
+  System.Generics.Collections, Sprite3DBuilderAssetsForm, Sprite3DAssetCache
   {$IF DEFINED(ANDROID) or DEFINED(IOS)}
   , FMX.MultiView   // FMX.ListBox, also needed there, is listed above
   {$ENDIF}
@@ -214,12 +214,15 @@ type
     OrbitCamera: TSpritelyOrbitalCamera;
     //** @abstract(The form's menu bar, holding FileMenu.)
     MainMenu1: TMainMenu;
-    //** @abstract(The "File" menu: Open Asset Folder..., Settings..., Licences... and Exit.)
+    //** @abstract(The "File" menu: Library..., Clear Thumbnails, Settings..., Licences... and
+    //** Exit.)
     FileMenu: TMenuItem;
-    //** @abstract(The "Open Asset Folder..." item, first in File; see
-    //** OpenAssetFolderItemClick. Desktop only: freed on Android and iOS, which have no
-    //** folder dialog.)
-    OpenAssetFolderItem: TMenuItem;
+    //** @abstract(The "Library..." item, first in File; see LibraryItemClick. Desktop only:
+    //** freed on Android and iOS, which have no folder dialog to add collections with.)
+    LibraryItem: TMenuItem;
+    //** @abstract(The "Clear Thumbnails" item, after Library; see ClearThumbnailsItemClick.
+    //** Desktop only, as Library is.)
+    ClearThumbnailsItem: TMenuItem;
     //** @abstract(The File menu's "Licences..." item; see LicencesMenuItemClick.)
     LicencesMenuItem: TMenuItem;
     //** @abstract(The "Settings..." item; see SettingsMenuItemClick.)
@@ -404,17 +407,27 @@ type
     //**
     //** @param(Sender ShowBoundsItem.)
     procedure ShowBoundsItemClick(Sender: TObject);
-    //** @abstract(Chooses a folder of the asset kits and shows its models on the Assets form.)
+    //** @abstract(Opens the Library; see OpenLibrary.)
     //**
-    //** The system's folder dialog, SelectFolders from Sprite3DFolderDialog, opens in the
-    //** folder chosen last (AssetFolder in settings.json) or, the first time or once that has
-    //** gone, in the assets folder AssetsFolder finds. Several folders can be chosen where the
-    //** platform allows. The folders are kept in FAssetFolders, the first in settings.json,
-    //** and given to the Assets form, TAssetsForm, which shows their models as thumbnails,
-    //** making those the thumbnail cache lacks. Cancel changes nothing.
+    //** @param(Sender LibraryItem.)
+    procedure LibraryItemClick(Sender: TObject);
+    //** @abstract(Shows the Library, TAssetsForm, making it the first time.)
     //**
-    //** @param(Sender OpenAssetFolderItem.)
-    procedure OpenAssetFolderItemClick(Sender: TObject);
+    //** Made, it is told AssetFolder from settings.json, the folder of the one palette of
+    //** before the library, so that palette can become the first collection.
+    procedure OpenLibrary;
+    //** @abstract(Opens the Library at start if it has collections, or there is a palette of
+    //** before the library to make one of; queued from FormShow, desktop only.)
+    procedure OpenLastLibrary;
+    //** @abstract(Asks, then deletes every cached thumbnail and its metadata.)
+    //**
+    //** The cache is TSprite3DAppSettings.ThumbnailFolder. If the Assets form is open, it
+    //** does it (TAssetsForm.ClearThumbnails) and makes the thumbnails of its folders again;
+    //** if it has not been made yet, ClearAssetCache is called here. What was done goes to
+    //** the Debug tab. No changes nothing.
+    //**
+    //** @param(Sender ClearThumbnailsItem.)
+    procedure ClearThumbnailsItemClick(Sender: TObject);
     //** @abstract(Shows the third-party licences and notices the program carries, from its
     //** own resources: TLicencesForm, by ShowLicences.)
     //**
@@ -563,11 +576,8 @@ type
     //** @abstract(The level's floor grid, a TModelGrid from Sprite3DGrid on FLevel, at
     //** GridSize from settings.json, always shown.)
     FGrid: TModelGrid;
-    //** @abstract(The asset folders File, Open Asset Folder last chose; empty until one is
-    //** chosen.)
-    FAssetFolders: TArray<String>;
-    //** @abstract(The Assets form, showing the models of FAssetFolders as thumbnails; made,
-    //** owned by this form, the first time a folder is opened, then kept.)
+    //** @abstract(The Library, the collections of models as thumbnails; made, owned by this
+    //** form, the first time it is opened, then kept.)
     FAssetsForm: TAssetsForm;
     //** @abstract(ApplyLights has written its first Debug tab line, saying which lights the
     //** session starts with; after that it writes one only when they change.)
@@ -975,8 +985,6 @@ type
     //**
     //** @returns(The volume.)
     function ViewVolume: TSweptVolume;
-    //** @abstract(Refits the view, after anything that changes what it frames.)
-    procedure UpdateView;
     {$IF DEFINED(ANDROID) or DEFINED(IOS)}
   private
     // Mobile only: FMX shows no TMainMenu there, so MainMenu1 is offered
@@ -1016,7 +1024,7 @@ implementation
 
 uses
   FMX.Platform, System.IOUtils, OSPaths, Gorilla.DefTypes, System.Math,
-  FMX.DialogService, Sprite3DBuilderLicencesForm, Sprite3DFolderDialog;
+  FMX.DialogService, Sprite3DBuilderLicencesForm;
 
 const
   //** @abstract(Mouse View: degrees the view turns for each pixel the pointer
@@ -1165,8 +1173,10 @@ begin
   BuildLockCameraItem;
 
   {$IF DEFINED(ANDROID) or DEFINED(IOS)}
-  // There is no folder dialog there, so no Open Asset Folder
-  OpenAssetFolderItem.Free;
+  // There is no folder dialog there to add collections with, so no
+  // Library, nor a cache of its thumbnails to clear
+  LibraryItem.Free;
+  ClearThumbnailsItem.Free;
   // Built from the finished menus, so it comes after every item is added
   BuildMobileMenu;
   {$ENDIF}
@@ -1589,6 +1599,9 @@ begin
   Caption := ProjectionCaption;
   DebugMemo.Lines.Add(Format('Empty level: grid of %s units', [FormatFloat('0.###',
     FSettings.GridSize)]));
+  // Once the main window is up: the palette, if there is one, on the last
+  // asset folder
+  TThread.ForceQueue(nil, OpenLastLibrary);
 end;
 
 procedure TMainForm.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
@@ -1794,28 +1807,13 @@ begin
   ApplyViewFps;
 end;
 
-// Chooses a folder of the asset kits with the system's folder dialog,
-// starting where the last one was chosen, or in the assets folder, and opens
-// its models on the Assets form, made the first time it is needed
-procedure TMainForm.OpenAssetFolderItemClick(Sender: TObject);
-var
-  Start: String;
-  Folders: TArray<String>;
+procedure TMainForm.LibraryItemClick(Sender: TObject);
 begin
-  Start := OSFriendlyPath(FSettings.AssetFolder);
-  if (Start = String.Empty) or not DirectoryExists(Start) then
-    Start := AssetsFolder;
-  if not SelectFolders('Open Asset Folder', Start, Folders) then
-    Exit;   // cancelled, or a platform with no folder dialog
-  FAssetFolders := Folders;
-  FSettings.AssetFolder := Folders[0];
-  try
-    FSettings.Save;
-  except
-    on E: Exception do
-      DebugMemo.Lines.Add('Can''t save the settings to ' + FSettings.FileName + ': ' +
-        E.Message);
-  end;
+  OpenLibrary;
+end;
+
+procedure TMainForm.OpenLibrary;
+begin
   if FAssetsForm = nil then
   begin
     FAssetsForm := TAssetsForm.Create(Self);
@@ -1825,8 +1823,51 @@ begin
         if not MainFormGone then
           DebugMemo.Lines.Add(AText);
       end;
+    FAssetsForm.MigrationFolder := OSFriendlyPath(FSettings.AssetFolder);
   end;
-  FAssetsForm.OpenFolders(Folders);
+  FAssetsForm.ShowLibrary;
+end;
+
+procedure TMainForm.OpenLastLibrary;
+{$IF not (DEFINED(ANDROID) or DEFINED(IOS))}
+var
+  Found: TSprite3DAssetLibrary;
+{$ENDIF}
+begin
+  if MainFormGone then
+    Exit;
+  {$IF not (DEFINED(ANDROID) or DEFINED(IOS))}
+  if (LoadAssetLibrary(TSprite3DAppSettings.ThumbnailFolder, Found) and
+    (Length(Found.Collections) > 0)) or
+    FileExists(TPath.Combine(TSprite3DAppSettings.ThumbnailFolder,
+    ASSET_PALETTE_FILE_NAME)) then
+    OpenLibrary;
+  {$ENDIF}
+end;
+
+// Asks first, as the thumbnails take a while to make again
+procedure TMainForm.ClearThumbnailsItemClick(Sender: TObject);
+begin
+  TDialogService.MessageDialog('Delete every cached thumbnail? They are made again ' +
+    'the next time a folder is opened, or now if the Assets form is showing one.',
+    TMsgDlgType.mtConfirmation, [TMsgDlgBtn.mbYes, TMsgDlgBtn.mbNo], TMsgDlgBtn.mbNo, 0,
+    procedure(const AResult: TModalResult)
+    var
+      Count, Failed: Integer;
+    begin
+      if (AResult <> mrYes) or MainFormGone then
+        Exit;
+      if FAssetsForm <> nil then
+        FAssetsForm.ClearThumbnails
+      else
+      begin
+        Count := ClearAssetCache(TSprite3DAppSettings.ThumbnailFolder, Failed);
+        DebugMemo.Lines.Add(Format('Assets: %d cached thumbnails deleted from %s',
+          [Count, TSprite3DAppSettings.ThumbnailFolder]));
+        if Failed > 0 then
+          DebugMemo.Lines.Add(Format('Assets: %d files could not be deleted', [Failed]));
+      end;
+    end);
 end;
 
 procedure TMainForm.LicencesMenuItemClick(Sender: TObject);
@@ -2473,12 +2514,6 @@ begin
   Box := TBoundingBox.Create(Point3D(-Half, 0, -Half),
     Point3D(Half, LEVEL_FRAME_CELLS_HIGH * FSettings.GridSize, Half));
   Result := CalcSweptVolume(Box, TPoint3D.Zero, saY);
-end;
-
-// The fit, after anything that changes what the view frames
-procedure TMainForm.UpdateView;
-begin
-  FitModel;
 end;
 
 procedure TMainForm.ShowBoundsItemClick(Sender: TObject);
