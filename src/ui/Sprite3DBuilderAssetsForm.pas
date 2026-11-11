@@ -37,8 +37,10 @@
 //** up. A right-click on the grid adds a group inside the one shown. Names are unique at
 //** every level. Counts take in the groups inside.
 //**
-//** A model's group is the one the palette gives it, or else AssetGroupName of its name, with
-//** a plural group put with its singular when the folder has both. Thumbnails are picked as
+//** A model's group is the one the palette gives it, or else the word of its name
+//** AssetGroupNames picks for the collection, first or last, with a plural group put with its
+//** singular when the folder has both, and a model alone in its group put in Unsorted
+//** (CollapseSmallGroups); Regroup Collection does that again for every model. Thumbnails are picked as
 //** files are: a click picks one, Control and a click adds or takes one away, Shift and a
 //** click picks the run from the last one clicked. Dragging a picked thumbnail onto a group
 //** moves every picked model there. The drags are the form's own, with the mouse
@@ -84,7 +86,7 @@
 //** |-- GroupMenu         TPopupMenu: AddGroupItem, RenameGroupItem, IconGroupItem,
 //** |                     DeleteGroupItem
 //** |-- CollectionMenu    TPopupMenu: RenameCollectionItem, MoveCollectionItem,
-//** |                     RemakeThumbnailsItem, DeleteCollectionItem
+//** |                     RemakeThumbnailsItem, RegroupItem, DeleteCollectionItem
 //** |-- ArtistMenu        TPopupMenu: RenameArtistItem, RescanArtistItem,
 //** |                     RemakeArtistItem, DeleteArtistItem
 //** `-- IconDialog        TOpenDialog, for Change Icon
@@ -196,6 +198,11 @@ type
     Tile: TRectangle;
     //** @abstract(The image on Tile showing the thumbnail.)
     Image: TImage;
+    //** @abstract(On Tile's top right corner: the model's kind, as ModelKindTag gives it;
+    //** hidden while it has none, as for a static model.)
+    Badge: TRectangle;
+    //** @abstract(The text on Badge.)
+    BadgeText: TLabel;
     //** @abstract(True once the thumbnail is in the cache and on Tile.)
     HasThumbnail: Boolean;
     //** @abstract(True if Meta.Group came from the palette, so it is not merged with
@@ -283,6 +290,9 @@ type
     //** @abstract(Remake Thumbnails: the collection's folders read again and every
     //** thumbnail made again, cached or not, as after a fix to how models are loaded.)
     RemakeThumbnailsItem: TMenuItem;
+    //** @abstract(Regroup Collection...: its groups thrown away, after asking, and every
+    //** model grouped again from its name.)
+    RegroupItem: TMenuItem;
     //** @abstract(Move to Artist: a sub-menu of the other artists, made as CollectionMenu
     //** opens; choosing one puts the collection under them.)
     MoveCollectionItem: TMenuItem;
@@ -457,6 +467,18 @@ type
     //**
     //** @param(Sender RemakeThumbnailsItem.)
     procedure RemakeThumbnailsItemClick(Sender: TObject);
+    //** @abstract(Asks, then throws away the collection's groups, with their icons and
+    //** where they are, and groups every model again from its name (AssetGroupNames), as when
+    //** it was first opened.)
+    //**
+    //** @param(Sender RegroupItem.)
+    procedure RegroupItemClick(Sender: TObject);
+    //** @abstract(Regroups the collection, if the user said Yes; the regroup dialog's answer.)
+    //**
+    //** @param(Sender The dialog's context; not used.)
+    //**
+    //** @param(AResult How the dialog was closed.)
+    procedure RegroupClosed(Sender: TObject; const AResult: TModalResult);
     //** @abstract(Asks, then takes the artist and their collections out of the library.)
     //**
     //** @param(Sender DeleteArtistItem.)
@@ -643,11 +665,32 @@ type
     //** @abstract(True while the run of collections under way is a Rescan All Collections:
     //** each one's folders are read again, not opened from what was saved.)
     FBulkRescan: Boolean;
-    //** @abstract(True while the run of collections under way remakes every thumbnail.)
-    FBulkRemake: Boolean;
-    //** @abstract(True from OpenCollection until HashesDone when every thumbnail of the
-    //** collection is to be made again, the cache's ignored.)
-    FRemaking: Boolean;
+    //** @abstract(While the job under way remakes thumbnails, when it started: a thumbnail
+    //** made before then is made again; 0 for none. Kept with the job, so a resumed remake
+    //** keeps those it made.)
+    FBulkRemakeBefore: TDateTime;
+    //** @abstract(From OpenCollection until HashesDone: thumbnails made before this are
+    //** made again, the cache's ignored; 0 for none.)
+    FRemakeBefore: TDateTime;
+    //** @abstract(What the job under way, or paused, is: @code(import), @code(rescan),
+    //** @code(remake) or @code(collection), one collection's thumbnails.)
+    FJobKind: String;
+    //** @abstract(The job's title, for the status and the logs.)
+    FJobTitle: String;
+    //** @abstract(The collection the job is working on; saved with the job, so a job
+    //** stopped part way through carries on with it.)
+    FBulkCurrent: String;
+    //** @abstract(True while a job is paused: saved in JobFile, waiting for Resume Scan or
+    //** Abort Scan. Meanwhile no thumbnails are made: collections open with what is cached.)
+    FJobPaused: Boolean;
+    //** @abstract(How many collections the paused job has left, its current one among them.)
+    FPausedLeft: Integer;
+    //** @abstract(Resume Scan, in CollectionBar: carries on with the paused job. Shown only
+    //** while one is paused.)
+    FResumeButton: TButton;
+    //** @abstract(Abort Scan, in CollectionBar: drops the job, running or paused. Shown
+    //** only while there is one.)
+    FAbortButton: TButton;
     //** @abstract(How many errors have gone to the error log since the last artist import
     //** or rescan began, for its summary.)
     FRunErrors: Integer;
@@ -742,10 +785,10 @@ type
     //**
     //** @param(ARescan True to read its folders again even if they have been scanned.)
     //**
-    //** @param(ARemake True to make every thumbnail again, cached or not; its folders are
-    //** read again too.)
+    //** @param(ARemakeBefore Thumbnails made before this are made again, the cache's ignored;
+    //** 0, the default, for none. Its folders are read again too when it is set.)
     procedure OpenCollection(const AId: String; const ARescan: Boolean = False;
-      const ARemake: Boolean = False);
+      const ARemakeBefore: TDateTime = 0);
     //** @abstract(Rescans every collection of the artist shown, one after another, making
     //** every thumbnail again if ARemake; see RescanArtistItemClick.)
     //**
@@ -788,6 +831,75 @@ type
     //**
     //** @param(AWhy Why, for the log.)
     procedure StopBulk(const AWhy: String);
+    //** @abstract(Pauses the job under way, if there is one: what it has made stays, it
+    //** stays saved in JobFile, nothing more is made, and Resume Scan and Abort Scan are
+    //** shown.)
+    //**
+    //** @param(AWhy Why, for the log.)
+    procedure PauseJob(const AWhy: String);
+    //** @abstract(Leaves the job under way to open something else: one collection's
+    //** thumbnails are dropped, as the collection opened next makes its own, and that one
+    //** makes the rest when it is opened again; any other job is paused (PauseJob).)
+    //**
+    //** @param(AWhy Why, for the log.)
+    procedure LeaveJob(const AWhy: String);
+    //** @abstract(Drops the job, running or paused: JobFile is deleted, and what it had
+    //** still to do is done as each collection is opened, as for an import stopped before.)
+    //**
+    //** @param(Sender FAbortButton.)
+    procedure AbortButtonClick(Sender: TObject);
+    //** @abstract(Carries on with the paused job, from the collection it was working on.)
+    //**
+    //** @param(Sender FResumeButton.)
+    procedure ResumeButtonClick(Sender: TObject);
+    //** @abstract(Shows Resume Scan while a job is paused, and Abort Scan while one is
+    //** paused or under way.)
+    procedure UpdateJobButtons;
+    //** @abstract(The status while a job is paused, saying what to do.)
+    //**
+    //** @returns(The text.)
+    function PausedText: String;
+    //** @abstract(Where the job is saved: in the settings folder, beside the library.)
+    //**
+    //** @returns(The file's path.)
+    function JobFile: String;
+    //** @abstract(Writes the job under way to JobFile: its kind and title, the collection
+    //** it is on and those still queued, its summary so far, its error count, and whether it
+    //** rescans or remakes. A failure is logged; the job goes on.)
+    procedure SaveJob;
+    //** @abstract(Deletes JobFile, if it is there.)
+    procedure ClearJob;
+    //** @abstract(Reads the job in JobFile, if there is one, as a paused job: the collection
+    //** it was on first, then the rest, leaving out any no longer in the library. A file that
+    //** cannot be read is logged and deleted.)
+    //**
+    //** @returns(True if there is a job, with collections left.)
+    function LoadJob: Boolean;
+    //** @abstract(Starts a job on collections AIds, one after another (NextBulk), saved in
+    //** JobFile at every step; any job before it is dropped.)
+    //**
+    //** @param(AKind The job's kind; see FJobKind.)
+    //**
+    //** @param(ATitle Its title.)
+    //**
+    //** @param(AIds The collections, in order.)
+    //**
+    //** @param(AFirst The collection shown at the end; empty for none.)
+    //**
+    //** @param(ASummary What is shown at the end, before the error count; empty for nothing.)
+    //**
+    //** @param(ARescan True to read each collection's folders again.)
+    //**
+    //** @param(ARemakeBefore Thumbnails made before this are made again; 0 for none.)
+    procedure StartJob(const AKind, ATitle: String; const AIds: TArray<String>;
+      const AFirst, ASummary: String; const ARescan: Boolean; const ARemakeBefore: TDateTime);
+    //** @abstract(Whether a thumbnail made at ACreated, as ISO 8601 text, is to be kept, not
+    //** made again: always, unless FRemakeBefore is set and it is older.)
+    //**
+    //** @param(ACreated When it was made.)
+    //**
+    //** @returns(True to keep it.)
+    function MadeSinceRemake(const ACreated: String): Boolean;
     //** @abstract(Whether artist AArtistId has a collection called AName, case ignored.)
     //**
     //** @param(AName The name.)
@@ -923,6 +1035,10 @@ type
     //** @abstract(Puts each plural group with its singular one, when both are there, for
     //** the models the palette does not place.)
     procedure MergePluralGroups;
+    //** @abstract(Puts each model the palette does not place, alone in its group, in
+    //** UNSORTED_GROUP, for the user to sort: a group of fewer than MIN_GROUP_SIZE of the
+    //** folder's models that the palette does not have already.)
+    procedure CollapseSmallGroups;
     //** @abstract(Makes a button for each of the palette's groups, in its order, with its
     //** icon, name and how many models of the folder it has, and chooses FGroup again, or
     //** the first group if it has gone.)
@@ -1110,6 +1226,18 @@ type
     procedure ShowGroup(const AGroup: String);
     //** @abstract(Frees the tiles and makes one for every entry of FEntries.)
     procedure BuildTiles;
+    //** @abstract(Shows entry AIndex's kind on its tile's badge, or hides the badge if the
+    //** kind has no tag.)
+    //**
+    //** @param(AIndex The entry.)
+    procedure UpdateBadge(const AIndex: Integer);
+    //** @abstract(Entry AIndex's kind and what it holds, for people: @code(Rigged and
+    //** animated: 2 meshes, 1,204 vertices, 1 skin of 24 joints, 12 animations).)
+    //**
+    //** @param(AIndex The entry; its kind must be known.)
+    //**
+    //** @returns(The text.)
+    function EntryContentText(const AIndex: Integer): String;
     //** @abstract(Places the tiles of FGroup in rows as wide as TilesBox, in name order,
     //** and hides the rest.)
     procedure LayoutTiles;
@@ -1279,7 +1407,8 @@ type
     //** @param(Sender FBackgroundCombo.)
     procedure BackgroundComboChange(Sender: TObject);
     //** @abstract(Setter for PreviewBackground: shows it behind the preview and in
-    //** FBackgroundCombo; an unknown key is taken as @code(checker).)
+    //** FBackgroundCombo, with "Model Preview" in a colour that can be read on it; an unknown
+    //** key is taken as @code(checker).)
     //**
     //** @param(Value The key.)
     procedure SetPreviewBackground(const Value: String);
@@ -1479,10 +1608,10 @@ type
 implementation
 
 uses
-  System.Threading, System.Math, System.DateUtils, System.IOUtils,
+  System.Threading, System.Math, System.DateUtils, System.IOUtils, System.JSON, JsonText,
   System.Generics.Defaults, System.StrUtils, FMX.DialogService, OSPaths, Sprite3DSweep,
   Sprite3DGroupIcons, Sprite3DFolderDialog, Sprite3DBuilderHelpers,
-  Sprite3DBuilderImportForm, Sprite3DBuilderFormatForm;
+  Sprite3DBuilderImportForm, Sprite3DBuilderFormatForm, Sprite3DModelContent;
 
 {$R *.fmx}
 
@@ -1554,6 +1683,10 @@ const
   IMPORT_LOG_FILE_NAME = 'library-import.log';
   //** @abstract(The error log's name, in the settings folder; see ErrorLogFile.)
   ERROR_LOG_FILE_NAME = 'library-errors.log';
+  //** @abstract(The job file's name, in the settings folder; see TAssetsForm.JobFile.)
+  JOB_FILE_NAME = 'library-job.json';
+  //** @abstract(The format named in the job file.)
+  JOB_FILE_FORMAT = 'Sprite3DBuilder library job';
   //** @abstract(The thumbnail check's report's name, in the settings folder; see
   //** TAssetsForm.ThumbnailCheckFile.)
   THUMBNAIL_CHECK_FILE_NAME = 'library-thumbnail-check.log';
@@ -1569,6 +1702,11 @@ const
   LOADING_FILE_NAME = 'library-loading.txt';
   //** @abstract(The name of the list of models passed over; see SkipFile.)
   SKIP_FILE_NAME = 'library-skipped.txt';
+  //** @abstract(The group models alone in their groups are put in, to be sorted by the user.)
+  UNSORTED_GROUP = 'unsorted';
+  //** @abstract(The fewest models a group made from their names may have; fewer go to
+  //** UNSORTED_GROUP.)
+  MIN_GROUP_SIZE = 2;
   //** @abstract(The artist the collections of before artists are put under, to be renamed.)
   UNASSIGNED_ARTIST = 'Unassigned';
   //** @abstract(The side of the preview's checker squares, in logical pixels.)
@@ -1582,6 +1720,12 @@ const
   PREVIEW_BACKGROUND_NAMES: array[0..3] of String = ('Checker', 'Black', 'Grey', 'White');
   PREVIEW_BACKGROUND_COLOURS: array[0..3] of TAlphaColor = ($00000000, $FF000000,
     $FF808080, $FFFFFFFF);
+  //** @abstract(The colour of "Model Preview" on each of PREVIEW_BACKGROUNDS, so it can be
+  //** read: dark on the checker, grey and white, light on black.)
+  PREVIEW_LABEL_COLOURS: array[0..3] of TAlphaColor = ($FF202020, $FFC0C0C0, $FF101010,
+    $FF404040);
+  //** @abstract(The colour of the kind's tag on a model's tile.)
+  BADGE_TEXT_COLOUR = TAlphaColor($FFFFC040);
   //** @abstract(The fill of a group's tile in the grid, so it stands apart from models.)
   FOLDER_FILL = TAlphaColor($28FFFFFF);
 
@@ -1619,6 +1763,9 @@ type
     tvEmpty,
     //** @abstract(Some are, but fewer than CHECK_NEARLY_EMPTY of them.)
     tvNearlyEmpty,
+    //** @abstract(An animation library, which has little or nothing to draw: counted, not
+    //** listed.)
+    tvLibrary,
     //** @abstract(Enough are.)
     tvGood);
 
@@ -1630,6 +1777,8 @@ type
     Visible: Double;
     //** @abstract(The highest alpha in the thumbnail, 0 to 255.)
     MaxAlpha: Integer;
+    //** @abstract(The model's kind's name, from its metadata.)
+    Kind: String;
     //** @abstract(The rest of the line: where the model is.)
     Text: String;
   end;
@@ -1871,6 +2020,28 @@ begin
   FTilesLayout.Height := 0;
   FTilesLayout.HitTest := False;
 
+  // Resume Scan and Abort Scan, after Rescan, shown only while there is a job
+  FResumeButton := TButton.Create(Self);
+  FResumeButton.Parent := CollectionBar;
+  FResumeButton.Align := TAlignLayout.Left;
+  FResumeButton.Margins.Left := 12;
+  FResumeButton.Width := 110;
+  FResumeButton.Position.X := RescanButton.Position.X + RescanButton.Width + 20;
+  FResumeButton.Text := 'Resume Scan';
+  FResumeButton.CanFocus := False;
+  FResumeButton.OnClick := ResumeButtonClick;
+  FResumeButton.Visible := False;
+  FAbortButton := TButton.Create(Self);
+  FAbortButton.Parent := CollectionBar;
+  FAbortButton.Align := TAlignLayout.Left;
+  FAbortButton.Margins.Left := 4;
+  FAbortButton.Width := 100;
+  FAbortButton.Position.X := FResumeButton.Position.X + FResumeButton.Width + 20;
+  FAbortButton.Text := 'Abort Scan';
+  FAbortButton.CanFocus := False;
+  FAbortButton.OnClick := AbortButtonClick;
+  FAbortButton.Visible := False;
+
   StatusLabel.Text := 'No asset folder open';
   Progress.Value := 0;
   Progress.Visible := False;
@@ -1941,6 +2112,11 @@ procedure TAssetsForm.ShowLibrary;
 begin
   LoadSkipped;
   LoadLibrary;
+  // A job left from before, or paused when the Library was closed: shown, not
+  // started; Resume Scan carries on
+  if (FBulkTotal = 0) and not FJobPaused and LoadJob then
+    Log('Assets: ' + PausedText);
+  UpdateJobButtons;
   Show;
   BringToFront;
   if FCollection.Id <> String.Empty then
@@ -2088,13 +2264,14 @@ begin
     Caption := 'Library';
 end;
 
-procedure TAssetsForm.OpenCollection(const AId: String; const ARescan, ARemake: Boolean);
+procedure TAssetsForm.OpenCollection(const AId: String; const ARescan: Boolean;
+  const ARemakeBefore: TDateTime);
 var
   Results: TArray<TAssetHashResult>;
   Opened: TSprite3DAssetCollection;
 begin
   StopMaking;
-  FRemaking := ARemake;
+  FRemakeBefore := ARemakeBefore;
   Inc(FScanId);
   FScanning := False;
   FEntries := nil;
@@ -2137,7 +2314,8 @@ begin
   SaveLibrary;
   FillCollections;
   Log('Assets: collection ' + FCollection.Name + ' opened');
-  if ARescan or ARemake or not FCollection.Scanned or (Length(FCollection.Models) = 0) then
+  if ARescan or (ARemakeBefore > 0) or not FCollection.Scanned or
+    (Length(FCollection.Models) = 0) then
   begin
     ScanCollection;
     Exit;
@@ -2226,7 +2404,7 @@ begin
   Index := FShownCollections[CollectionCombo.ItemIndex];
   if not SameText(FLibrary.Collections[Index].Id, FCollection.Id) then
   begin
-    StopBulk('another collection chosen');
+    LeaveJob('another collection chosen');
     OpenCollection(FLibrary.Collections[Index].Id);
   end;
 end;
@@ -2261,8 +2439,42 @@ procedure TAssetsForm.RescanButtonClick(Sender: TObject);
 begin
   if FCollection.Id = String.Empty then
     Exit;
+  StopBulk('a rescan started');
   AppendErrorLog('--- Rescan: ' + FCollection.Name);
   ScanCollection;
+end;
+
+procedure TAssetsForm.RegroupItemClick(Sender: TObject);
+begin
+  if FCollection.Id = String.Empty then
+    Exit;
+  TDialogService.MessageDialog('Regroup ' + FCollection.Name + '? Its groups, the icons ' +
+    'chosen for them and where each model is, are thrown away, and every model is grouped ' +
+    'again from its name, those alone in their group in Unsorted. The models and ' +
+    'thumbnails stay.', TMsgDlgType.mtConfirmation, [TMsgDlgBtn.mbYes, TMsgDlgBtn.mbNo],
+    TMsgDlgBtn.mbNo, 0, RegroupClosed);
+end;
+
+procedure TAssetsForm.RegroupClosed(Sender: TObject; const AResult: TModalResult);
+var
+  Collection: TSprite3DAssetCollection;
+begin
+  if (AResult <> mrYes) or (FCollection.Id = String.Empty) then
+    Exit;
+  LeaveJob('the collection regrouped');
+  Collection := FCollection;
+  Collection.Groups := nil;
+  try
+    SaveAssetCollection(FCacheFolder, Collection);
+  except
+    on E: Exception do
+    begin
+      LogError('Assets: can''t regroup ' + Collection.Name + ': ' + E.Message);
+      Exit;
+    end;
+  end;
+  Log('Assets: ' + Collection.Name + ' regrouped from its models'' names');
+  OpenCollection(Collection.Id);
 end;
 
 procedure TAssetsForm.RemakeThumbnailsItemClick(Sender: TObject);
@@ -2272,7 +2484,7 @@ begin
   StopBulk('thumbnails remade');
   AppendErrorLog('--- Remake thumbnails: ' + FCollection.Name);
   Log('Assets: making every thumbnail of ' + FCollection.Name + ' again');
-  OpenCollection(FCollection.Id, True, True);
+  OpenCollection(FCollection.Id, True, Now);
 end;
 
 procedure TAssetsForm.CollectionMenuButtonClick(Sender: TObject);
@@ -2369,7 +2581,10 @@ begin
   Id := NewCollection(AName, FNewSources, FArtistId);
   FNewSources := nil;
   if Id <> String.Empty then
+  begin
+    LeaveJob('a collection added');
     OpenCollection(Id);
+  end;
 end;
 
 function TAssetsForm.NewCollection(const AName: String;
@@ -2474,7 +2689,7 @@ begin
     Exit;
   if SameText(FLibrary.Artists[ArtistCombo.ItemIndex].Id, FArtistId) then
     Exit;
-  StopBulk('another artist chosen');
+  LeaveJob('another artist chosen');
   FArtistId := FLibrary.Artists[ArtistCombo.ItemIndex].Id;
   FLibrary.LastArtist := FArtistId;
   SaveLibrary;
@@ -2521,7 +2736,7 @@ procedure TAssetsForm.StartArtistRun(const ARemake: Boolean);
 var
   At: Integer;
   Ids: TArray<String>;
-  Name, What: String;
+  Name, What, Title, First: String;
 begin
   At := ArtistIndex(FArtistId);
   if At < 0 then
@@ -2541,22 +2756,23 @@ begin
   else
     What := 'rescanned';
   StopBulk('a rescan started');
-  StartImportLog(Format('Artist %s: %s, %s', [IfThen(ARemake, 'thumbnails remade',
-    'rescan'), Name, CountText(Length(Ids), 'collection')]));
+  Title := Format('Artist %s: %s, %s', [IfThen(ARemake, 'thumbnails remade', 'rescan'),
+    Name, CountText(Length(Ids), 'collection')]);
+  StartImportLog(Title);
   FRunErrors := 0;
   // Each read again, one after another; the one open now is shown at the end
-  FBulkRescan := True;
-  FBulkRemake := ARemake;
-  FBulkQueue := Ids;
-  FBulkTotal := Length(Ids);
   if (FCollection.Id <> String.Empty) and SameText(FCollection.ArtistId, FArtistId) then
-    FBulkFirst := FCollection.Id
+    First := FCollection.Id
   else
-    FBulkFirst := Ids[0];
-  FBulkSummary := Format('%s: %s %s.', [Name, CountText(Length(Ids), 'collection'), What]);
+    First := Ids[0];
   Log(Format('Assets: %s, the %s of %s', [What, CountText(Length(Ids), 'collection'),
     Name]));
-  NextBulk;
+  if ARemake then
+    StartJob('remake', Title, Ids, First, Format('%s: %s %s.', [Name,
+      CountText(Length(Ids), 'collection'), What]), True, Now)
+  else
+    StartJob('rescan', Title, Ids, First, Format('%s: %s %s.', [Name,
+      CountText(Length(Ids), 'collection'), What]), True, 0);
 end;
 
 procedure TAssetsForm.ArtistNamed(const AAsk: TGroupNameAsk; const AName: String);
@@ -2588,7 +2804,7 @@ begin
   Artist.Id := NewCollectionId;
   Artist.Name := AName;
   FLibrary.Artists := FLibrary.Artists + [Artist];
-  StopBulk('an artist added');
+  LeaveJob('an artist added');
   FArtistId := Artist.Id;
   FLibrary.LastArtist := FArtistId;
   SaveLibrary;
@@ -2877,9 +3093,6 @@ begin
     IfThen(Stopped, ' Stopped before the end.', '')]);
   // Each imported in full now, one after another: folders read, thumbnails
   // made; the first is shown at the end
-  FBulkQueue := NewIds;
-  FBulkTotal := Length(NewIds);
-  FBulkFirst := FirstId;
   FillCollections;
   if Length(NewIds) = 0 then
   begin
@@ -2887,12 +3100,12 @@ begin
     FBulkSummary := String.Empty;
     Exit;
   end;
-  NextBulk;
+  StartJob('import', 'Artist import: ' + Title, NewIds, FirstId, FBulkSummary, False, 0);
 end;
 
 procedure TAssetsForm.NextBulk;
 var
-  Id: String;
+  Id, Done: String;
   Probe: TSprite3DAssetCollection;
 begin
   while Length(FBulkQueue) > 0 do
@@ -2902,7 +3115,9 @@ begin
     // One that cannot be read would never finish: passed over
     if LoadAssetCollection(FCacheFolder, Id, Probe) then
     begin
-      OpenCollection(Id, FBulkRescan, FBulkRemake);
+      FBulkCurrent := Id;
+      SaveJob;
+      OpenCollection(Id, FBulkRescan, FBulkRemakeBefore);
       Exit;
     end;
     LogError('Assets: can''t read the collection ' + Id + '; passed over');
@@ -2911,14 +3126,28 @@ begin
   if FBulkTotal = 0 then
     Exit;
   FBulkTotal := 0;
-  if FBulkRemake then
-    Log('Assets: artist collections rescanned, every thumbnail made again')
-  else if FBulkRescan then
-    Log('Assets: artist collections rescanned')
+  FBulkCurrent := String.Empty;
+  ClearJob;
+  UpdateJobButtons;
+  if FJobKind = 'collection' then
+  begin
+    // One collection's thumbnails: it is open already
+    Log('Assets: every thumbnail of ' + FCollection.Name + ' made');
+    FJobKind := String.Empty;
+    FBulkRemakeBefore := 0;
+    ShowPreview(FSelected);
+    Exit;
+  end;
+  if FJobKind = 'remake' then
+    Done := 'rescanned, every thumbnail made again'
+  else if FJobKind = 'rescan' then
+    Done := 'rescanned'
   else
-    Log('Assets: artist collections imported');
+    Done := 'imported';
+  Log('Assets: ' + FJobTitle + ': collections ' + Done);
+  FJobKind := String.Empty;
   FBulkRescan := False;
-  FBulkRemake := False;
+  FBulkRemakeBefore := 0;
   if FRunErrors > 0 then
     FBulkSummary := FBulkSummary + Format(' %s, listed in %s.',
       [CountText(FRunErrors, 'error'), ErrorLogFile])
@@ -2944,23 +3173,273 @@ end;
 
 procedure TAssetsForm.StopBulk(const AWhy: String);
 begin
-  if FBulkTotal = 0 then
+  if (FBulkTotal = 0) and not FJobPaused then
     Exit;
-  if FBulkRescan then
-    Log(Format('Assets: artist rescan stopped (%s); %d collections not rescanned', [AWhy,
-      Length(FBulkQueue)]))
+  if FJobPaused then
+    Log(Format('Assets: paused job dropped (%s): %s', [AWhy, FJobTitle]))
   else
-    Log(Format('Assets: artist import stopped (%s); %d collections not yet imported will ' +
-      'be as each is opened', [AWhy, Length(FBulkQueue)]));
+    Log(Format('Assets: %s stopped (%s); %d collections not done will be as each is ' +
+      'opened', [FJobTitle, AWhy, Length(FBulkQueue) + Ord(FBulkCurrent <> String.Empty)]));
   AppendErrorLog(Format('--- stopped (%s); %s so far', [AWhy,
     CountText(FRunErrors, 'error')]));
+  ClearJob;
+  FJobPaused := False;
+  FPausedLeft := 0;
+  FJobKind := String.Empty;
+  FJobTitle := String.Empty;
   FBulkRescan := False;
-  FBulkRemake := False;
+  FBulkRemakeBefore := 0;
+  FBulkCurrent := String.Empty;
   FBulkQueue := nil;
   FBulkTotal := 0;
   FBulkFirst := String.Empty;
   FBulkSummary := String.Empty;
   FBulkPending := False;
+  UpdateJobButtons;
+end;
+
+procedure TAssetsForm.PauseJob(const AWhy: String);
+begin
+  if FBulkTotal = 0 then
+    Exit;
+  // Saved at every step already, the collection it was on among it
+  SaveJob;
+  FPausedLeft := Length(FBulkQueue) + Ord(FBulkCurrent <> String.Empty);
+  Log(Format('Assets: %s paused (%s), %s left; Resume Scan carries on', [FJobTitle, AWhy,
+    CountText(FPausedLeft, 'collection')]));
+  AppendErrorLog(Format('--- paused (%s); %s so far', [AWhy,
+    CountText(FRunErrors, 'error')]));
+  StopMaking;
+  FBulkTotal := 0;
+  FBulkPending := False;
+  FJobPaused := True;
+  Progress.Visible := False;
+  StatusLabel.Text := PausedText;
+  UpdateJobButtons;
+end;
+
+procedure TAssetsForm.LeaveJob(const AWhy: String);
+begin
+  if FBulkTotal = 0 then
+    Exit;
+  if FJobKind = 'collection' then
+    StopBulk(AWhy)
+  else
+    PauseJob(AWhy);
+end;
+
+procedure TAssetsForm.ResumeButtonClick(Sender: TObject);
+begin
+  if not FJobPaused then
+    Exit;
+  // As it was saved, the collection it was on first
+  if not LoadJob then
+  begin
+    FJobPaused := False;
+    UpdateJobButtons;
+    StatusLabel.Text := 'Nothing left to resume';
+    Exit;
+  end;
+  FJobPaused := False;
+  FBulkTotal := Length(FBulkQueue);
+  DebugLog('Resumed: ' + FJobTitle + '; program built ' + BuildTimeText);
+  AppendErrorLog('--- Resumed: ' + FJobTitle);
+  Log(Format('Assets: %s resumed, %s left', [FJobTitle,
+    CountText(Length(FBulkQueue), 'collection')]));
+  UpdateJobButtons;
+  NextBulk;
+end;
+
+procedure TAssetsForm.AbortButtonClick(Sender: TObject);
+begin
+  if (FBulkTotal = 0) and not FJobPaused then
+    Exit;
+  StopMaking;
+  StopBulk('aborted');
+  Progress.Visible := False;
+  StatusLabel.Text := Format('%d models; scan aborted', [Length(FEntries)]);
+end;
+
+procedure TAssetsForm.UpdateJobButtons;
+begin
+  if FResumeButton <> nil then
+    FResumeButton.Visible := FJobPaused;
+  if FAbortButton <> nil then
+    FAbortButton.Visible := FJobPaused or (FBulkTotal > 0);
+end;
+
+function TAssetsForm.PausedText: String;
+begin
+  Result := Format('Paused: %s, %s left. Resume Scan carries on; Abort Scan drops it.',
+    [FJobTitle, CountText(FPausedLeft, 'collection')]);
+end;
+
+function TAssetsForm.JobFile: String;
+begin
+  Result := TPath.Combine(ExtractFileDir(AssetDatabaseFile(FCacheFolder)), JOB_FILE_NAME);
+end;
+
+procedure TAssetsForm.SaveJob;
+var
+  Root: TJSONObject;
+  Queue: TJSONArray;
+  Temp: String;
+begin
+  Root := TJSONObject.Create;
+  try
+    Root.AddPair('format', JOB_FILE_FORMAT);
+    Root.AddPair('version', TJSONNumber.Create(1));
+    Root.AddPair('kind', FJobKind);
+    Root.AddPair('title', FJobTitle);
+    Root.AddPair('current', FBulkCurrent);
+    Queue := TJSONArray.Create;
+    for var Id in FBulkQueue do
+      Queue.Add(Id);
+    Root.AddPair('queue', Queue);
+    Root.AddPair('first', FBulkFirst);
+    Root.AddPair('summary', FBulkSummary);
+    Root.AddPair('errors', TJSONNumber.Create(FRunErrors));
+    Root.AddPair('rescan', TJSONBool.Create(FBulkRescan));
+    if FBulkRemakeBefore > 0 then
+      Root.AddPair('remakeBefore', DateToISO8601(FBulkRemakeBefore, False))
+    else
+      Root.AddPair('remakeBefore', String.Empty);
+    try
+      // Written whole, then moved into place
+      Temp := OSFriendlyPath(JobFile) + '.tmp';
+      TFile.WriteAllText(Temp, JsonToText(Root), TEncoding.UTF8);
+      if TFile.Exists(OSFriendlyPath(JobFile)) then
+        TFile.Delete(OSFriendlyPath(JobFile));
+      TFile.Move(Temp, OSFriendlyPath(JobFile));
+    except
+      on E: Exception do
+        LogError('Assets: can''t save the job to ' + JobFile + ': ' + E.Message);
+    end;
+  finally
+    Root.Free;
+  end;
+end;
+
+procedure TAssetsForm.ClearJob;
+begin
+  try
+    if TFile.Exists(OSFriendlyPath(JobFile)) then
+      TFile.Delete(OSFriendlyPath(JobFile));
+  except
+    on E: Exception do
+      LogError('Assets: can''t delete ' + JobFile + ': ' + E.Message);
+  end;
+end;
+
+function TAssetsForm.LoadJob: Boolean;
+var
+  Root, Value: TJSONValue;
+  JobText, FormatName, Current, Remake: String;
+  Ids: TArray<String>;
+  Errors: Integer;
+  Rescan: Boolean;
+
+  function Known(const AId: String): Boolean;
+  begin
+    Result := False;
+    for var Entry in FLibrary.Collections do
+      if SameText(Entry.Id, AId) then
+        Exit(True);
+  end;
+
+begin
+  Result := False;
+  if not TFile.Exists(OSFriendlyPath(JobFile)) then
+    Exit;
+  Root := nil;
+  try
+    try
+      JobText := TFile.ReadAllText(OSFriendlyPath(JobFile), TEncoding.UTF8);
+      Root := TJSONObject.ParseJSONValue(JobText);
+      if not (Root is TJSONObject) or
+        not TJSONObject(Root).TryGetValue<String>('format', FormatName) or
+        (FormatName <> JOB_FILE_FORMAT) then
+        raise Exception.Create('not a job file');
+      Ids := nil;
+      if TJSONObject(Root).TryGetValue<String>('current', Current) and (Current <> '') and
+        Known(Current) then
+        Ids := [Current];
+      Value := TJSONObject(Root).GetValue('queue');
+      if Value is TJSONArray then
+        for var Item in TJSONArray(Value) do
+          if (Item is TJSONString) and Known(TJSONString(Item).Value) and
+            (IndexText(TJSONString(Item).Value, Ids) < 0) then
+            Ids := Ids + [TJSONString(Item).Value];
+      if Length(Ids) = 0 then
+      begin
+        Log('Assets: the saved job has no collections left; dropped');
+        ClearJob;
+        Exit;
+      end;
+      if not TJSONObject(Root).TryGetValue<String>('kind', FJobKind) then
+        FJobKind := 'import';
+      if not TJSONObject(Root).TryGetValue<String>('title', FJobTitle) then
+        FJobTitle := 'Scan';
+      if not TJSONObject(Root).TryGetValue<String>('first', FBulkFirst) then
+        FBulkFirst := String.Empty;
+      if not TJSONObject(Root).TryGetValue<String>('summary', FBulkSummary) then
+        FBulkSummary := String.Empty;
+      if TJSONObject(Root).TryGetValue<Integer>('errors', Errors) and (Errors >= 0) then
+        FRunErrors := Errors;
+      if TJSONObject(Root).TryGetValue<Boolean>('rescan', Rescan) then
+        FBulkRescan := Rescan
+      else
+        FBulkRescan := False;
+      FBulkRemakeBefore := 0;
+      if TJSONObject(Root).TryGetValue<String>('remakeBefore', Remake) and (Remake <> '') then
+        FBulkRemakeBefore := ISO8601ToDate(Remake, False);
+      FBulkQueue := Ids;
+      FBulkCurrent := String.Empty;
+      FPausedLeft := Length(Ids);
+      FJobPaused := True;
+      Result := True;
+    except
+      on E: Exception do
+      begin
+        LogError('Assets: can''t read the saved job ' + JobFile + ': ' + E.Message +
+          '; dropped');
+        ClearJob;
+      end;
+    end;
+  finally
+    Root.Free;
+  end;
+end;
+
+procedure TAssetsForm.StartJob(const AKind, ATitle: String; const AIds: TArray<String>;
+  const AFirst, ASummary: String; const ARescan: Boolean; const ARemakeBefore: TDateTime);
+begin
+  if FJobPaused then
+    StopBulk('a new job started');
+  FJobKind := AKind;
+  FJobTitle := ATitle;
+  FBulkQueue := AIds;
+  FBulkTotal := Length(AIds);
+  FBulkFirst := AFirst;
+  FBulkSummary := ASummary;
+  FBulkRescan := ARescan;
+  FBulkRemakeBefore := ARemakeBefore;
+  FBulkCurrent := String.Empty;
+  FJobPaused := False;
+  SaveJob;
+  UpdateJobButtons;
+  NextBulk;
+end;
+
+function TAssetsForm.MadeSinceRemake(const ACreated: String): Boolean;
+begin
+  if FRemakeBefore <= 0 then
+    Exit(True);
+  try
+    Result := ISO8601ToDate(ACreated, False) >= FRemakeBefore;
+  except
+    Result := False;
+  end;
 end;
 
 procedure TAssetsForm.DeleteCollectionItemClick(Sender: TObject);
@@ -2980,6 +3459,7 @@ begin
   if (AResult <> mrYes) or (FCollection.Id = String.Empty) then
     Exit;
   Id := FCollection.Id;
+  LeaveJob('a collection deleted');
   Log('Assets: collection ' + FCollection.Name + ' deleted');
   for var I := High(FLibrary.Collections) downto 0 do
     if SameText(FLibrary.Collections[I].Id, Id) then
@@ -2999,7 +3479,7 @@ begin
   if Length(FQueue) > 0 then
     Log(Format('Assets: stopped with %d thumbnails still to make; open the collection ' +
       'again to carry on', [Length(FQueue) + Ord(FMaking >= 0)]));
-  StopBulk('the Library closed');
+  PauseJob('the Library closed');
   StopMaking;
   Action := TCloseAction.caHide;
 end;
@@ -3144,7 +3624,7 @@ end;
 procedure TAssetsForm.CheckThumbnails;
 const
   VERDICT_NAMES: array[TThumbnailVerdict] of String = ('MISSING', 'EMPTY', 'NEARLY EMPTY',
-    'good');
+    'library', 'good');
 var
   Checks: TArray<TThumbnailCheck>;
   Check: TThumbnailCheck;
@@ -3156,6 +3636,8 @@ var
   Where, Thumb: String;
   At, Done: Integer;
   Watch: TStopwatch;
+  Meta: TSprite3DAssetMeta;
+  Kind: TSprite3DModelKind;
 begin
   if FChecking then
     Exit;
@@ -3203,12 +3685,22 @@ begin
               except
                 // Unreadable: counts as missing
               end;
+            // An animation library has little or nothing to draw: not a problem
+            if LoadAssetMeta(FCacheFolder, Model.Key, Meta) then
+            begin
+              Kind := ModelKindFromKey(Meta.Kind);
+              Check.Kind := ModelKindName(Kind);
+              if (Kind = mkAnimationLibrary) and (Check.Verdict <> tvMissing) then
+                Check.Verdict := tvLibrary;
+            end
+            else
+              Check.Kind := ModelKindName(mkUnknown);
             Measured.Add(Model.Key, Check);
           end;
           Check.Text := Format('%s  %s  %s', [Where,
             ChangeFileExt(ExtractFileName(Model.FileName), ''), Model.FileName]);
           Inc(Counts[Check.Verdict]);
-          if Check.Verdict <> tvGood then
+          if not (Check.Verdict in [tvGood, tvLibrary]) then
             Checks := Checks + [Check];
           Inc(Done);
           // Kept responsive: thousands of thumbnails take a few seconds
@@ -3232,13 +3724,18 @@ begin
           Result := CompareText(A.Text, B.Text);
       end));
     Lines := [Format('Thumbnail check, %s: %d models; %d missing, %d empty, %d nearly ' +
-      'empty (under %.1f%% visible), %d good. Visible means alpha %d or more.',
+      'empty (under %.1f%% visible), %d animation libraries (not listed), %d good. ' +
+      'Visible means alpha %d or more.',
       [FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), Done, Counts[tvMissing], Counts[tvEmpty],
-      Counts[tvNearlyEmpty], CHECK_NEARLY_EMPTY * 100, Counts[tvGood], CHECK_VISIBLE_ALPHA]),
-      'Verdict, share visible, highest alpha, artist / collection, model, file.', ''];
+      Counts[tvNearlyEmpty], CHECK_NEARLY_EMPTY * 100, Counts[tvLibrary], Counts[tvGood],
+      CHECK_VISIBLE_ALPHA]),
+      'Verdict, share visible, highest alpha, kind, artist / collection, model, file. ' +
+      'A kind "Not known yet" is that of a model whose thumbnail was made before kinds ' +
+      'were kept: remake its thumbnails, or preview it, to know it.', ''];
     for var Each in Checks do
-      Lines := Lines + [Format('%-12s %7.3f%%  alpha %3d  %s', [VERDICT_NAMES[Each.Verdict],
-        Each.Visible * 100, Each.MaxAlpha, Each.Text])];
+      Lines := Lines + [Format('%-12s %7.3f%%  alpha %3d  %-19s  %s',
+        [VERDICT_NAMES[Each.Verdict], Each.Visible * 100, Each.MaxAlpha, Each.Kind,
+        Each.Text])];
     try
       TFile.WriteAllLines(OSFriendlyPath(ThumbnailCheckFile), Lines, TEncoding.UTF8);
     except
@@ -3246,9 +3743,9 @@ begin
         LogError('Assets: can''t write ' + ThumbnailCheckFile + ': ' + E.Message);
     end;
     Log(Format('Assets: thumbnail check of %d models in %s: %d missing, %d empty, %d ' +
-      'nearly empty, %d good; listed in %s', [Done,
+      'nearly empty, %d animation libraries, %d good; listed in %s', [Done,
       DurationText(Watch.Elapsed.TotalSeconds), Counts[tvMissing], Counts[tvEmpty],
-      Counts[tvNearlyEmpty], Counts[tvGood], ThumbnailCheckFile]));
+      Counts[tvNearlyEmpty], Counts[tvLibrary], Counts[tvGood], ThumbnailCheckFile]));
   finally
     FChecking := False;
   end;
@@ -3347,6 +3844,9 @@ end;
 procedure TAssetsForm.HashesDone(const AScanId: Integer;
   const AResults: TArray<TAssetHashResult>);
 var
+  RemakeBefore: TDateTime;
+  AutoIndices: TArray<Integer>;
+  AutoNames, AutoGroups: TArray<String>;
   Seen: TDictionary<String, String>;
   Entry: TAssetEntry;
   First, Chosen: String;
@@ -3395,7 +3895,7 @@ begin
       Seen.Add(R.Hash, R.FileName);
       Entry := Default(TAssetEntry);
       Entry.HasThumbnail := LoadAssetMeta(FCacheFolder, R.Hash, Entry.Meta) and
-        not FRemaking and
+        MadeSinceRemake(Entry.Meta.Created) and
         (Entry.Meta.ThumbWidth = THUMBNAIL_SIZE) and
         (Entry.Meta.ThumbHeight = THUMBNAIL_SIZE) and
         TFile.Exists(AssetThumbnailFile(FCacheFolder, R.Hash));
@@ -3409,10 +3909,11 @@ begin
       // Where it is now, whatever the cache last saw
       Entry.Meta.Name := ChangeFileExt(ExtractFileName(R.FileName), '');
       Entry.GroupChosen := FPaletteGroups.TryGetValue(R.Hash, Chosen);
+      // Not chosen: grouped with the others below
       if Entry.GroupChosen then
         Entry.Meta.Group := Chosen
       else
-        Entry.Meta.Group := AssetGroupName(Entry.Meta.Name);
+        Entry.Meta.Group := String.Empty;
       Entry.Meta.FileName := R.FileName;
       // A collection opened from its saved models knows only each file
       if R.Files <> nil then
@@ -3422,7 +3923,22 @@ begin
   finally
     Seen.Free;
   end;
+  // The models no group was chosen for: grouped as the collection's names
+  // suit, first word or last, then plurals with singulars, then groups of
+  // one in Unsorted
+  AutoIndices := nil;
+  AutoNames := nil;
+  for var I := 0 to High(FEntries) do
+    if not FEntries[I].GroupChosen then
+    begin
+      AutoIndices := AutoIndices + [I];
+      AutoNames := AutoNames + [FEntries[I].Meta.Name];
+    end;
+  AutoGroups := AssetGroupNames(AutoNames);
+  for var I := 0 to High(AutoIndices) do
+    FEntries[AutoIndices[I]].Meta.Group := AutoGroups[I];
   MergePluralGroups;
+  CollapseSmallGroups;
   // Every model in the palette, and every group new to it last, in
   // alphabetical order, so the palette holds the folder from now on
   NewGroups := nil;
@@ -3444,7 +3960,8 @@ begin
   if FScanning then
     FCollection.Scanned := True;
   FScanning := False;
-  FRemaking := False;
+  RemakeBefore := FRemakeBefore;
+  FRemakeBefore := 0;
   SavePalette;
 
   // Name order throughout, whatever the group: a move to another group
@@ -3469,7 +3986,63 @@ begin
   BuildGroups;
   Log(Format('Assets: %d models shown, %d thumbnails from the cache, %d to make',
     [Length(FEntries), Cached, FQueueTotal]));
+  // A job paused: nothing is made, the collection is only shown
+  if FJobPaused then
+  begin
+    FQueue := nil;
+    FQueueTotal := 0;
+    Progress.Visible := False;
+    StatusLabel.Text := PausedText;
+    UpdateJobButtons;
+    Exit;
+  end;
+  // Thumbnails to make with no job under way: a job of their own, so they
+  // are resumed, not started again, if the Library is closed first
+  if (FQueueTotal > 0) and (FBulkTotal = 0) then
+  begin
+    FJobKind := 'collection';
+    FJobTitle := 'Thumbnails of ' + FCollection.Name;
+    FBulkQueue := nil;
+    FBulkTotal := 1;
+    FBulkCurrent := FCollection.Id;
+    FBulkFirst := String.Empty;
+    FBulkSummary := String.Empty;
+    FBulkRescan := False;
+    FBulkRemakeBefore := RemakeBefore;
+    SaveJob;
+    UpdateJobButtons;
+  end;
   MakeNext;
+end;
+
+procedure TAssetsForm.CollapseSmallGroups;
+var
+  Counts: TDictionary<String, Integer>;
+  Count: Integer;
+  Key: String;
+begin
+  Counts := TDictionary<String, Integer>.Create;
+  try
+    for var Entry in FEntries do
+    begin
+      Key := LowerCase(Entry.Meta.Group);
+      if not Counts.TryGetValue(Key, Count) then
+        Count := 0;
+      Counts.AddOrSetValue(Key, Count + 1);
+    end;
+    for var I := 0 to High(FEntries) do
+    begin
+      if FEntries[I].GroupChosen then
+        Continue;   // the user's choice stands
+      // A group the palette has already stands too
+      if GroupIndex(FEntries[I].Meta.Group) >= 0 then
+        Continue;
+      if Counts[LowerCase(FEntries[I].Meta.Group)] < MIN_GROUP_SIZE then
+        FEntries[I].Meta.Group := UNSORTED_GROUP;
+    end;
+  finally
+    Counts.Free;
+  end;
 end;
 
 procedure TAssetsForm.MergePluralGroups;
@@ -4748,6 +5321,30 @@ begin
   UpdateTileMarks;
 end;
 
+procedure TAssetsForm.UpdateBadge(const AIndex: Integer);
+var
+  Tag: String;
+begin
+  if (AIndex < 0) or (AIndex > High(FEntries)) or (FEntries[AIndex].Badge = nil) then
+    Exit;
+  Tag := ModelKindTag(ModelKindFromKey(FEntries[AIndex].Meta.Kind));
+  FEntries[AIndex].BadgeText.Text := Tag;
+  FEntries[AIndex].Badge.Visible := Tag <> String.Empty;
+end;
+
+function TAssetsForm.EntryContentText(const AIndex: Integer): String;
+var
+  Content: TSprite3DModelContent;
+begin
+  Content.Meshes := FEntries[AIndex].Meta.Meshes;
+  Content.Vertices := FEntries[AIndex].Meta.Vertices;
+  Content.Animations := FEntries[AIndex].Meta.Animations;
+  Content.Skins := FEntries[AIndex].Meta.Skins;
+  Content.Joints := FEntries[AIndex].Meta.Joints;
+  Result := ModelKindName(ModelKindFromKey(FEntries[AIndex].Meta.Kind)) + ': ' +
+    ModelContentText(Content);
+end;
+
 procedure TAssetsForm.SelectEntry(const AIndex: Integer);
 var
   Size: TPoint3D;
@@ -4773,6 +5370,9 @@ begin
   end
   else
     SizeLabel.Text := 'Size known once its thumbnail is made';
+  // What it holds, once it has been loaded and counted
+  if FEntries[AIndex].Meta.Kind <> String.Empty then
+    SizeLabel.Text := SizeLabel.Text + '; ' + EntryContentText(AIndex);
   FileLabel.Text := FEntries[AIndex].Meta.FileName;
   FileLabel.Hint := FileLabel.Text;
   ShowPreview(AIndex);
@@ -4780,9 +5380,9 @@ end;
 
 procedure TAssetsForm.BuildTiles;
 var
-  Tile: TRectangle;
+  Tile, Badge: TRectangle;
   Image: TImage;
-  Caption: TLabel;
+  Caption, BadgeText: TLabel;
   Bitmap: TBitmap;
 begin
   TilesBox.BeginUpdate;
@@ -4847,8 +5447,32 @@ begin
       Caption.Text := FEntries[I].Meta.Name;
       Caption.HitTest := False;
 
+      // The kind, over the thumbnail's top right corner
+      Badge := TRectangle.Create(Tile);
+      Badge.Parent := Tile;
+      Badge.HitTest := False;
+      Badge.Height := 14;
+      Badge.Width := TILE_WIDTH - 12;
+      Badge.Position.Point := TPointF.Create(6, 6);
+      Badge.Fill.Kind := TBrushKind.None;
+      Badge.Stroke.Kind := TBrushKind.None;
+      BadgeText := TLabel.Create(Badge);
+      BadgeText.Parent := Badge;
+      BadgeText.Align := TAlignLayout.Right;
+      BadgeText.AutoSize := True;
+      BadgeText.HitTest := False;
+      BadgeText.StyledSettings := BadgeText.StyledSettings - [TStyledSetting.Size,
+        TStyledSetting.Style, TStyledSetting.FontColor];
+      BadgeText.TextSettings.Font.Size := 9;
+      BadgeText.TextSettings.Font.Style := [TFontStyle.fsBold];
+      BadgeText.TextSettings.FontColor := BADGE_TEXT_COLOUR;
+      BadgeText.TextSettings.WordWrap := False;
+
       FEntries[I].Tile := Tile;
       FEntries[I].Image := Image;
+      FEntries[I].Badge := Badge;
+      FEntries[I].BadgeText := BadgeText;
+      UpdateBadge(I);
     end;
   finally
     TilesBox.EndUpdate;
@@ -4939,6 +5563,9 @@ var
   Watch: TStopwatch;
   Bytes: Int64;
   Fixes: TArray<TSprite3DTextureFix>;
+  Content: TSprite3DModelContent;
+  Kind: TSprite3DModelKind;
+  KnownBefore: Boolean;
 begin
   FileName := FEntries[AIndex].Meta.FileName;
   if IsSkipped(FileName) then
@@ -4975,6 +5602,28 @@ begin
     LoadModelFile(FModel, LoadFile, Box);
     FModel.RotationAngle.X := 180;
     FModel.ResetToBindPose();
+    // What it holds, and the kind of model that makes it
+    Content := ModelContent(FModel);
+    Kind := GuessModelKind(Content);
+    KnownBefore := FEntries[AIndex].Meta.Kind <> String.Empty;
+    FEntries[AIndex].Meta.Meshes := Content.Meshes;
+    FEntries[AIndex].Meta.Vertices := Content.Vertices;
+    FEntries[AIndex].Meta.Animations := Content.Animations;
+    FEntries[AIndex].Meta.Skins := Content.Skins;
+    FEntries[AIndex].Meta.Joints := Content.Joints;
+    FEntries[AIndex].Meta.Kind := ModelKindKey(Kind);
+    DebugLog(Format('%s: %s: %s', [FEntries[AIndex].Meta.Name, ModelKindName(Kind),
+      ModelContentText(Content)]));
+    UpdateBadge(AIndex);
+    // One with a thumbnail made before kinds were kept: kept now
+    if FEntries[AIndex].HasThumbnail and not KnownBefore then
+      try
+        SaveAssetMeta(FCacheFolder, FEntries[AIndex].Meta);
+      except
+        on E: Exception do
+          LogError('Assets: can''t save what ' + FEntries[AIndex].Meta.Name + ' holds: ' +
+            E.Message);
+      end;
   except
     on E: Exception do
     begin
@@ -5000,15 +5649,22 @@ begin
         Log(Format('Assets: %s: texture %s made a PNG, as the loader can''t read its format',
           [AModel, Fix.Named]));
       toOtherFile:
-        Log(Format('Assets: %s: texture %s used in place of %s (%s)', [AModel, Fix.Used,
-          Fix.Named, Fix.Reason]));
+        Log(Format('Assets: %s: %s %s used in place of %s (%s)', [AModel,
+          IfThen(Fix.IsBuffer, 'buffer', 'texture'), Fix.Used, Fix.Named, Fix.Reason]));
       toOtherFileConverted:
         Log(Format('Assets: %s: texture %s, made a PNG, used in place of %s (%s)', [AModel,
           Fix.Source, Fix.Named, Fix.Reason]));
       toMissing:
-        LogError(Format('Assets: %s: no texture for %s (%s), nor one of that name in a ' +
-          'format that can be read, in its folder or up to %d folders above it',
-          [AModel, Fix.Named, Fix.Reason, SEARCH_LEVELS_UP]));
+        if Fix.IsBuffer then
+          LogError(Format('Assets: %s: no buffer for %s (%s), nor one of that name and ' +
+            'length in its folder or up to %d folders above it, nor one beside it named ' +
+            'as the model or without a copy number', [AModel, Fix.Named, Fix.Reason,
+            SEARCH_LEVELS_UP]))
+        else
+          LogError(Format('Assets: %s: no texture for %s (%s), nor one of that name in a ' +
+            'format that can be read, in its folder or up to %d folders above it%s',
+            [AModel, Fix.Named, Fix.Reason, SEARCH_LEVELS_UP, IfThen(Fix.Used <> '',
+            '; the magenta and black placeholder is in its place', '')]));
     end;
 end;
 
@@ -5037,6 +5693,9 @@ begin
     FBackground.Spec := Spec;
   if FPreviewGrid <> nil then
     FPreviewGrid.GridColor := PreviewGridColour;
+  // "Model Preview" readable on it
+  if FPreviewLabel <> nil then
+    FPreviewLabel.TextSettings.FontColor := PREVIEW_LABEL_COLOURS[At];
   if (FBackgroundCombo <> nil) and (FBackgroundCombo.ItemIndex <> At) then
   begin
     FSettingBackground := True;

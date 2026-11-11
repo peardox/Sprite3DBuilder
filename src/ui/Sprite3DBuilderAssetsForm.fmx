@@ -348,6 +348,10 @@ object AssetsForm: TAssetsForm
       Text = 'Remake Thumbnails'
       OnClick = RemakeThumbnailsItemClick
     end
+    object RegroupItem: TMenuItem
+      Text = 'Regroup Collection...'
+      OnClick = RegroupItemClick
+    end
     object DeleteCollectionItem: TMenuItem
       Text = 'Delete Collection'
       OnClick = DeleteCollectionItemClick

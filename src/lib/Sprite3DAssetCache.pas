@@ -105,7 +105,7 @@ const
   //** @abstract(The database, in the settings folder; see AssetDatabaseFile.)
   ASSET_DATABASE_FILE_NAME = 'library.db';
   //** @abstract(The database's schema version, kept in its @code(user_version).)
-  ASSET_DATABASE_VERSION = 2;
+  ASSET_DATABASE_VERSION = 3;
 
 type
   //** @abstract(What the cache keeps about one model.)
@@ -133,6 +133,20 @@ type
     View: String;
     //** @abstract(When the thumbnail was made, as ISO 8601 text.)
     Created: String;
+    //** @abstract(Meshes with vertex data, as the caller counted them when it loaded the
+    //** model; meaningful only when Kind is set.)
+    Meshes: Integer;
+    //** @abstract(Their vertices, all together; see Meshes.)
+    Vertices: Integer;
+    //** @abstract(Animations; see Meshes.)
+    Animations: Integer;
+    //** @abstract(Skins; see Meshes.)
+    Skins: Integer;
+    //** @abstract(Joints, over every skin; see Meshes.)
+    Joints: Integer;
+    //** @abstract(The kind of model the caller made of those counts, by its key, such as
+    //** @code(static); empty when they have not been counted.)
+    Kind: String;
     //** @abstract(The bounding box's size: BoxMax less BoxMin.)
     //**
     //** @returns(Width, height and depth, in the model's own units.)
@@ -1123,6 +1137,15 @@ begin
       AConnection.ExecSQL('ALTER TABLE library ADD COLUMN last_artist TEXT NOT NULL ' +
         'DEFAULT ''''');
     end;
+    // 3: what each model holds, and the kind of model it makes
+    if Version < 3 then
+    begin
+      for var Column in TArray<String>.Create('meshes', 'vertices', 'animations', 'skins',
+        'joints') do
+        AConnection.ExecSQL('ALTER TABLE meta ADD COLUMN ' + Column +
+          ' INTEGER NOT NULL DEFAULT 0');
+      AConnection.ExecSQL('ALTER TABLE meta ADD COLUMN kind TEXT NOT NULL DEFAULT ''''');
+    end;
     AConnection.ExecSQL('PRAGMA user_version = ' + IntToStr(ASSET_DATABASE_VERSION));
     AConnection.Commit;
   except
@@ -1205,13 +1228,16 @@ end;
 procedure WriteMeta(const AConnection: TFDConnection; const AMeta: TSprite3DAssetMeta);
 begin
   AConnection.ExecSQL('INSERT OR REPLACE INTO meta (model_key, name, grp, file, files, min_x, ' +
-    'min_y, min_z, max_x, max_y, max_z, thumb_width, thumb_height, thumb_view, created) ' +
+    'min_y, min_z, max_x, max_y, max_z, thumb_width, thumb_height, thumb_view, created, ' +
+    'meshes, vertices, animations, skins, joints, kind) ' +
     'VALUES (:model_key, :name, :grp, :file, :files, :min_x, :min_y, :min_z, :max_x, :max_y, ' +
-    ':max_z, :thumb_width, :thumb_height, :thumb_view, :created)',
+    ':max_z, :thumb_width, :thumb_height, :thumb_view, :created, :meshes, :vertices, ' +
+    ':animations, :skins, :joints, :kind)',
     [LowerCase(AMeta.Hash), AMeta.Name, AMeta.Group, AMeta.FileName,
     String.Join(#10, AMeta.Files), AMeta.BoxMin.X, AMeta.BoxMin.Y, AMeta.BoxMin.Z,
     AMeta.BoxMax.X, AMeta.BoxMax.Y, AMeta.BoxMax.Z, AMeta.ThumbWidth, AMeta.ThumbHeight,
-    AMeta.View, AMeta.Created]);
+    AMeta.View, AMeta.Created, AMeta.Meshes, AMeta.Vertices, AMeta.Animations, AMeta.Skins,
+    AMeta.Joints, AMeta.Kind]);
 end;
 
 procedure SaveAssetMeta(const ACacheFolder: String; const AMeta: TSprite3DAssetMeta);
@@ -1250,6 +1276,12 @@ begin
         AMeta.ThumbHeight := Query.FieldByName('thumb_height').AsInteger;
         AMeta.View := Query.FieldByName('thumb_view').AsString;
         AMeta.Created := Query.FieldByName('created').AsString;
+        AMeta.Meshes := Query.FieldByName('meshes').AsInteger;
+        AMeta.Vertices := Query.FieldByName('vertices').AsInteger;
+        AMeta.Animations := Query.FieldByName('animations').AsInteger;
+        AMeta.Skins := Query.FieldByName('skins').AsInteger;
+        AMeta.Joints := Query.FieldByName('joints').AsInteger;
+        AMeta.Kind := Query.FieldByName('kind').AsString;
         Exit(True);
       end;
     finally

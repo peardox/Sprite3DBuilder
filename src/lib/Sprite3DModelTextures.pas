@@ -20,7 +20,11 @@
 //**   @item(Only then the same name with another extension, in the same places in the
 //**     same order: PNG first, then JPEG, then any other format the image library reads,
 //**     which is made a PNG.)
-//**   @item(Failing all of those, the name is left as it is, for the loader to report.))
+//**   @item(Then, for a name with an image's extension in it, as an exporter can leave
+//**     (@code(T_Wall_png.png)), the name without it (WithoutNamedExtension), in the same
+//**     places in the same order.)
+//**   @item(Failing all of those, the placeholder texture (PLACEHOLDER_FILE_NAME), so the
+//**     model still loads, its thumbnail showing where the texture is missing.))
 //**
 //** If any texture had to be found or made, the model is loaded from a copy of it in the
 //** cache's @code(models) folder, named after the model's key. The loader looks for the
@@ -40,6 +44,11 @@
 //** settings are global, as are the folder listings kept here: call PrepareModelTextures
 //** from one thread at a time; the program calls it from the main thread only.
 //**
+//** A buffer, a glTF's binary data, that is not where the model says is looked for too
+//** (ResolveBuffer): the same name nearest first, then, beside the model, one named as the
+//** model or as the name given without a copy number such as @code(_001); only a file of
+//** the length the model gives it is taken. Found ones go in the copy as textures do.
+//**
 //** Other model formats are loaded as they are, for now.
 unit Sprite3DModelTextures;
 
@@ -54,7 +63,8 @@ unit Sprite3DModelTextures;
   model's, then below each of its parents up to SEARCH_LEVELS_UP (never a
   disk's root or a folder in it, nor a tree of more than TREE_FILE_LIMIT
   files); else the same name with another extension in the same places;
-  else left as it is, for the loader to report. If anything was
+  else the name without an image extension left in it (T_Wall_png.png);
+  else a magenta and black placeholder, so the model still loads. If anything was
   found or made, the model is loaded from a copy in the cache's models
   folder; every file it names (buffers, textures, PNGs made) is copied
   beside it, named after the SHA-256 of its content (a PNG made, of its
@@ -85,7 +95,8 @@ type
     //** @abstract(Not there, or not readable; the same name in another format was found
     //** and made a PNG.)
     toOtherFileConverted,
-    //** @abstract(Nothing could be used: left as named, for the loader to report.)
+    //** @abstract(Nothing could be used: the placeholder texture is used in its place, for
+    //** a texture, if it could be made; a buffer is left as named, for the loader to report.)
     toMissing);
 
   //** @abstract(One texture a model names, and what was done with it.)
@@ -103,6 +114,8 @@ type
     //** @abstract(Why the file named was not used as it is; empty for toAsNamed and
     //** toConverted.)
     Reason: String;
+    //** @abstract(True for a buffer, the model's binary data, rather than a texture.)
+    IsBuffer: Boolean;
   end;
 
 //** @abstract(Whether the model loader reads image file AFileName as it is, judged by its
@@ -146,12 +159,15 @@ const
   //** @abstract(Goes before the extension of every PNG made, and changes whenever the way
   //** they are made does, so none made the old way is used again.)
   MADE_PNG_VERSION = '.v3';
+  //** @abstract(The texture put in the place of one that cannot be found, in the folder of
+  //** models' copies: a magenta and black checker, the usual sign of a missing texture.)
+  PLACEHOLDER_FILE_NAME = 'missing-texture.v1.png';
   //** @abstract(How many files, of any kind, a folder's tree may hold for a texture to be
   //** looked for in it.)
   TREE_FILE_LIMIT = 100000;
   //** @abstract(How long, in milliseconds, a folder's listing is used again before it is
   //** made afresh.)
-  LISTING_KEEP_MS = 5 * 60 * 1000;
+  LISTING_KEEP_MS = 30 * 60 * 1000;
 
 type
   //** @abstract(What a file says about the transparency of its merged image, the one the
@@ -291,6 +307,54 @@ begin
   Result := (Ext = '.png') or (Ext = '.jpg') or (Ext = '.jpeg');
 end;
 
+type
+  //** @abstract(A file's SHA-256 as ContentHash worked it out, with what told the file then.)
+  TFileHash = record
+    //** @abstract(The file's size then.)
+    Size: Int64;
+    //** @abstract(When it was last written then.)
+    Written: TDateTime;
+    //** @abstract(Its SHA-256, as 64 lower-case hex digits.)
+    Sha: String;
+  end;
+
+var
+  //** @abstract(The SHA-256 of every file ContentHash has worked one out for, by full path
+  //** in upper case.)
+  FileHashes: TDictionary<String, TFileHash>;
+
+//** @abstract(The SHA-256 of file AFile's content, worked out again only if its size or
+//** the time it was last written has changed since: a texture many models share is read
+//** once.)
+//**
+//** @param(AFile The file.)
+//**
+//** @returns(Its SHA-256, as 64 lower-case hex digits.)
+//**
+//** @raises(Exception If it cannot be read.)
+function ContentHash(const AFile: String): String;
+var
+  Key: String;
+  Known: TFileHash;
+  Size: Int64;
+  Written: TDateTime;
+begin
+  if FileHashes = nil then
+    FileHashes := TDictionary<String, TFileHash>.Create;
+  Key := UpperCase(AFile);
+  Size := TFile.GetSize(AFile);
+  Written := TFile.GetLastWriteTime(AFile);
+  if FileHashes.TryGetValue(Key, Known) and (Known.Size = Size) and
+    (Known.Written = Written) then
+    Exit(Known.Sha);
+  Result := LowerCase(THashSHA2.GetHashStringFromFile(AFile,
+    THashSHA2.TSHA2Version.SHA256));
+  Known.Size := Size;
+  Known.Written := Written;
+  Known.Sha := Result;
+  FileHashes.AddOrSetValue(Key, Known);
+end;
+
 //** @abstract(Makes image file ASource a PNG in AFolder, 8 bits a channel with alpha, named
 //** after the SHA-256 of ASource; one made before is used again.)
 //**
@@ -317,8 +381,7 @@ begin
   APng := String.Empty;
   AReason := String.Empty;
   try
-    Target := TPath.Combine(AFolder, LowerCase(THashSHA2.GetHashStringFromFile(ASource,
-      THashSHA2.TSHA2Version.SHA256)) + MADE_PNG_VERSION + '.png');
+    Target := TPath.Combine(AFolder, ContentHash(ASource) + MADE_PNG_VERSION + '.png');
     if TFile.Exists(Target) then
     begin
       APng := Target;
@@ -390,8 +453,7 @@ begin
   if SameText(ExcludeTrailingPathDelimiter(ExtractFileDir(AFile)),
     ExcludeTrailingPathDelimiter(AFolder)) then
     Exit(ExtractFileName(AFile));
-  Result := LowerCase(THashSHA2.GetHashStringFromFile(AFile,
-    THashSHA2.TSHA2Version.SHA256)) + LowerCase(ExtractFileExt(AFile));
+  Result := ContentHash(AFile) + LowerCase(ExtractFileExt(AFile));
   Target := TPath.Combine(AFolder, Result);
   if TFile.Exists(Target) then
     Exit;
@@ -422,32 +484,91 @@ begin
 end;
 
 type
-  //** @abstract(A list of the image files in a folder, or in a folder and every folder
-  //** below it, as FolderImages keeps it.)
-  TFolderListing = record
+  //** @abstract(The files in a folder, or in a folder and every folder below it, as
+  //** FolderListing keeps them, with indexes to find them by name.)
+  TFolderListing = class
+  public
     //** @abstract(The files, as full paths.)
     Files: TArray<String>;
+    //** @abstract(The files by their name, in upper case.)
+    ByName: TDictionary<String, TArray<String>>;
+    //** @abstract(The image files (IsImageFile) by their name without its extension, in
+    //** upper case.)
+    ByBase: TDictionary<String, TArray<String>>;
     //** @abstract(When it was made, from TThread.GetTickCount64, in milliseconds.)
     Taken: UInt64;
+    //** @abstract(Makes the empty indexes.)
+    constructor Create;
+    //** @abstract(Frees the indexes.)
+    destructor Destroy; override;
+    //** @abstract(Adds AFile to Files and to the indexes.)
+    //**
+    //** @param(AFile The file, as a full path.)
+    procedure Add(const AFile: String);
   end;
 
 var
   //** @abstract(The listings made in the last LISTING_KEEP_MS, by folder in upper case,
-  //** with @code(*) after it for a whole tree; see FolderImages.)
-  Listings: TDictionary<String, TFolderListing>;
+  //** with @code(*) after it for a whole tree; see FolderListing. Owns them.)
+  Listings: TObjectDictionary<String, TFolderListing>;
+  //** @abstract(Whether each extension, in lower case, is an image's; see IsImageFile.)
+  ImageExtensions: TDictionary<String, Boolean>;
 
 //** @abstract(Whether AFileName could be a texture: an image the loader or the image
-//** library reads, judged by its extension.)
+//** library reads, judged by its extension, and worked out once for each extension.)
 //**
 //** @param(AFileName The file.)
 //**
 //** @returns(True if so.)
 function IsImageFile(const AFileName: String): Boolean;
+var
+  Ext: String;
 begin
-  Result := LoaderReadsImage(AFileName) or IsFileFormatSupported(AFileName);
+  Ext := LowerCase(ExtractFileExt(AFileName));
+  if ImageExtensions = nil then
+    ImageExtensions := TDictionary<String, Boolean>.Create;
+  if not ImageExtensions.TryGetValue(Ext, Result) then
+  begin
+    Result := (Ext <> String.Empty) and
+      (LoaderReadsImage(AFileName) or IsFileFormatSupported(AFileName));
+    ImageExtensions.Add(Ext, Result);
+  end;
 end;
 
-//** @abstract(The image files in AFolder, or in it and every folder below it if ATree,
+constructor TFolderListing.Create;
+begin
+  inherited Create;
+  ByName := TDictionary<String, TArray<String>>.Create;
+  ByBase := TDictionary<String, TArray<String>>.Create;
+end;
+
+destructor TFolderListing.Destroy;
+begin
+  ByName.Free;
+  ByBase.Free;
+  inherited;
+end;
+
+procedure TFolderListing.Add(const AFile: String);
+var
+  Key: String;
+  Found: TArray<String>;
+begin
+  Files := Files + [AFile];
+  Key := UpperCase(ExtractFileName(AFile));
+  if not ByName.TryGetValue(Key, Found) then
+    Found := nil;
+  ByName.AddOrSetValue(Key, Found + [AFile]);
+  if IsImageFile(AFile) then
+  begin
+    Key := UpperCase(ChangeFileExt(ExtractFileName(AFile), String.Empty));
+    if not ByBase.TryGetValue(Key, Found) then
+      Found := nil;
+    ByBase.AddOrSetValue(Key, Found + [AFile]);
+  end;
+end;
+
+//** @abstract(The files in AFolder, or in it and every folder below it if ATree, indexed,
 //** from a listing made in the last LISTING_KEEP_MS if there is one.)
 //**
 //** A tree with more than TREE_FILE_LIMIT files, of any kind, is not listed, so a search
@@ -457,25 +578,23 @@ end;
 //**
 //** @param(ATree True for every folder below it too.)
 //**
-//** @returns(The files, as full paths; empty if there are none, the folder is not there,
-//** or the tree is too big.)
-function FolderImages(const AFolder: String; const ATree: Boolean): TArray<String>;
+//** @returns(The listing, which is not the caller's; empty if there are no files, the
+//** folder is not there, or the tree is too big.)
+function FolderListing(const AFolder: String; const ATree: Boolean): TFolderListing;
 var
   Key, Folder: String;
-  Listing: TFolderListing;
   Found: TList<String>;
   Pending: TQueue<String>;
   Seen: Integer;
 begin
-  Result := nil;
   Key := UpperCase(ExcludeTrailingPathDelimiter(AFolder));
   if ATree then
     Key := Key + '*';
   if Listings = nil then
-    Listings := TDictionary<String, TFolderListing>.Create;
-  if Listings.TryGetValue(Key, Listing) and
-    (TThread.GetTickCount64 - Listing.Taken < LISTING_KEEP_MS) then
-    Exit(Listing.Files);
+    Listings := TObjectDictionary<String, TFolderListing>.Create([doOwnsValues]);
+  if Listings.TryGetValue(Key, Result) and
+    (TThread.GetTickCount64 - Result.Taken < LISTING_KEEP_MS) then
+    Exit;
   Found := TList<String>.Create;
   Pending := TQueue<String>.Create;
   try
@@ -495,8 +614,7 @@ begin
             Pending.Clear;
             Break;
           end;
-          if IsImageFile(Each) then
-            Found.Add(Each);
+          Found.Add(Each);
         end;
         if ATree and (Seen <= TREE_FILE_LIMIT) then
           for var Each in TDirectory.GetDirectories(Folder) do
@@ -505,14 +623,15 @@ begin
         // A folder that cannot be read is passed over
       end;
     end;
-    Result := Found.ToArray;
+    Result := TFolderListing.Create;
+    for var Each in Found do
+      Result.Add(Each);
   finally
     Pending.Free;
     Found.Free;
   end;
-  Listing.Files := Result;
-  Listing.Taken := TThread.GetTickCount64;
-  Listings.AddOrSetValue(Key, Listing);
+  Result.Taken := TThread.GetTickCount64;
+  Listings.AddOrSetValue(Key, Result);
 end;
 
 //** @abstract(How many path delimiters AFileName has: how deep it is.)
@@ -547,38 +666,29 @@ begin
       TPath.GetPathRoot(AFolder));
 end;
 
-//** @abstract(The image files with ANamed's name, nearest first, for TextureSearch.)
-//**
-//** The places, in order: the folder named and the model's folder, then the whole tree
-//** of each of the model's folder's parents up to SEARCH_LEVELS_UP, but none that is
-//** TooHighToSearch. In each place, the nearer file, by fewer folders between, comes
-//** first, then name order. If AExactName, only files with ANamed's file name, case
-//** ignored; if not, only those with its name but another extension, PNG first, then
-//** JPEG, then the rest.
+//** @abstract(Where a file a model names is looked for, nearest first: the folder named
+//** and the model's folder, then the tree of each of the model's folder's parents up to
+//** SEARCH_LEVELS_UP, but none that is TooHighToSearch.)
 //**
 //** @param(AModelFolder The model's folder.)
 //**
-//** @param(ANamed The texture named, as a full path.)
+//** @param(ANamed The file named, as a full path.)
 //**
-//** @param(AExactName True for its own file name; False for its name with any other
-//** extension.)
+//** @param(APlaces On return, the folders.)
 //**
-//** @returns(The files, as full paths, without repeats.)
-function TextureSearch(const AModelFolder, ANamed: String;
-  const AExactName: Boolean): TArray<String>;
+//** @param(ATrees On return, for each folder, True if every folder below it counts too.)
+procedure SearchPlaces(const AModelFolder, ANamed: String; out APlaces: TArray<String>;
+  out ATrees: TArray<Boolean>);
 var
-  Base, FileName, Folder, Upper: String;
-  Places: TArray<String>;
-  Trees: TArray<Boolean>;
-  Seen: TDictionary<String, Boolean>;
-  Matches: TArray<String>;
+  Folder, Upper: String;
 begin
-  Result := nil;
-  FileName := ExtractFileName(ANamed);
-  Base := ChangeFileExt(FileName, String.Empty);
-  Places := [ExcludeTrailingPathDelimiter(ExtractFileDir(ANamed)),
-    ExcludeTrailingPathDelimiter(AModelFolder)];
-  Trees := [False, False];
+  APlaces := [ExcludeTrailingPathDelimiter(ExtractFileDir(ANamed))];
+  ATrees := [False];
+  if not SameText(APlaces[0], ExcludeTrailingPathDelimiter(AModelFolder)) then
+  begin
+    APlaces := APlaces + [ExcludeTrailingPathDelimiter(AModelFolder)];
+    ATrees := ATrees + [False];
+  end;
   Folder := ExcludeTrailingPathDelimiter(AModelFolder);
   for var Level := 1 to SEARCH_LEVELS_UP do
   begin
@@ -586,42 +696,55 @@ begin
     if (Upper = String.Empty) or SameText(Upper, Folder) or TooHighToSearch(Upper) then
       Break;
     Folder := Upper;
-    Places := Places + [Folder];
-    Trees := Trees + [True];
+    APlaces := APlaces + [Folder];
+    ATrees := ATrees + [True];
   end;
-  Seen := TDictionary<String, Boolean>.Create;
-  try
-    for var I := 0 to High(Places) do
-    begin
-      Matches := nil;
-      for var Each in FolderImages(Places[I], Trees[I]) do
-        if Seen.ContainsKey(UpperCase(Each)) then
-          Continue
-        else if AExactName and SameText(ExtractFileName(Each), FileName) then
-          Matches := Matches + [Each]
-        else if not AExactName and not SameText(ExtractFileName(Each), FileName) and
-          SameText(ChangeFileExt(ExtractFileName(Each), String.Empty), Base) then
-          Matches := Matches + [Each];
-      // Nearest first: fewer folders below the place, then PNG, JPEG, the
-      // rest, then name order
-      TArray.Sort<String>(Matches, TComparer<String>.Construct(
-        function(const A, B: String): Integer
-        begin
-          Result := FolderDepth(A) - FolderDepth(B);
-          if Result = 0 then
-            Result := ExtensionRank(A) - ExtensionRank(B);
-          if Result = 0 then
-            Result := CompareText(A, B);
-        end));
-      for var Each in Matches do
-      begin
-        Seen.Add(UpperCase(Each), True);
+end;
+
+//** @abstract(The image files in one of SearchPlaces' places with ANamed's name, nearest
+//** first.)
+//**
+//** If AExactName, only files with ANamed's file name, case ignored; if not, only those
+//** with its name but another extension. The nearer file, by fewer folders between, comes
+//** first, then PNG, then JPEG, then the rest, then name order.
+//**
+//** @param(AListing The place's listing, from FolderListing.)
+//**
+//** @param(ANamed The texture named, as a full path.)
+//**
+//** @param(AExactName True for its own file name; False for its name with any other
+//** extension.)
+//**
+//** @returns(The files, as full paths.)
+function PlaceMatches(const AListing: TFolderListing; const ANamed: String;
+  const AExactName: Boolean): TArray<String>;
+var
+  FileName: String;
+  Found: TArray<String>;
+begin
+  Result := nil;
+  FileName := ExtractFileName(ANamed);
+  if AExactName then
+  begin
+    if AListing.ByName.TryGetValue(UpperCase(FileName), Found) then
+      for var Each in Found do
+        if IsImageFile(Each) then
+          Result := Result + [Each];
+  end
+  else if AListing.ByBase.TryGetValue(UpperCase(ChangeFileExt(FileName, String.Empty)),
+    Found) then
+    for var Each in Found do
+      if not SameText(ExtractFileName(Each), FileName) then
         Result := Result + [Each];
-      end;
-    end;
-  finally
-    Seen.Free;
-  end;
+  TArray.Sort<String>(Result, TComparer<String>.Construct(
+    function(const A, B: String): Integer
+    begin
+      Result := FolderDepth(A) - FolderDepth(B);
+      if Result = 0 then
+        Result := ExtensionRank(A) - ExtensionRank(B);
+      if Result = 0 then
+        Result := CompareText(A, B);
+    end));
 end;
 
 //** @abstract(Readies image file ACandidate in place of the one named: used as it is if the
@@ -655,6 +778,213 @@ begin
   Result := False;
 end;
 
+//** @abstract(AName without one number at its end and the separator before it, such as
+//** the @code(_001) or @code(.001) a modelling program adds to a name it has seen before.)
+//**
+//** @param(AName A file's name without its extension.)
+//**
+//** @returns(The name without them; AName if it has none.)
+function WithoutCopyNumber(const AName: String): String;
+var
+  At: Integer;
+begin
+  Result := AName;
+  At := Length(AName);
+  while (At >= 1) and CharInSet(AName[At], ['0'..'9']) do
+    Dec(At);
+  if (At >= 2) and (At < Length(AName)) and CharInSet(AName[At], ['_', '.', '-', ' ']) then
+    Result := Copy(AName, 1, At - 1);
+end;
+
+//** @abstract(Whether file AFile is ALength bytes long, or ALength is not known.)
+//**
+//** @param(AFile The file.)
+//**
+//** @param(ALength The length the model gives; 0 or less for none.)
+//**
+//** @returns(True if it fits.)
+function LengthFits(const AFile: String; const ALength: Int64): Boolean;
+begin
+  if ALength <= 0 then
+    Exit(True);
+  try
+    Result := TFile.GetSize(AFile) = ALength;
+  except
+    Result := False;
+  end;
+end;
+
+//** @abstract(Finds a buffer a glTF names that is not where it says.)
+//**
+//** Only a file of the length the model gives (@code(byteLength)) can be it. First the
+//** name as given, case ignored, nearest first in SearchPlaces' places; then, in the folder
+//** named and the model's, a file with the same extension named as the model (a buffer is
+//** usually named after its model), or as the name given without its copy number
+//** (WithoutCopyNumber), which a modelling program can add on export.
+//**
+//** @param(AModelFile The model, as a full path.)
+//**
+//** @param(AUri The buffer's uri, as the model gives it.)
+//**
+//** @param(ALength The buffer's length, from its @code(byteLength); 0 or less for none.)
+//**
+//** @returns(What was done with it: toAsNamed if it is there, toOtherFile if another was
+//** found, else toMissing; IsBuffer is set.)
+function ResolveBuffer(const AModelFile, AUri: String; const ALength: Int64):
+  TSprite3DTextureFix;
+var
+  ModelFolder, Named, FileName, Ext, ModelBase, Stripped, Base: String;
+  Places: TArray<String>;
+  Trees: TArray<Boolean>;
+  Matches, Found: TArray<String>;
+begin
+  Result := Default(TSprite3DTextureFix);
+  Result.Named := AUri;
+  Result.IsBuffer := True;
+  Result.Outcome := toMissing;
+  ModelFolder := ExtractFilePath(AModelFile);
+  Named := OSFriendlyPath(TPath.Combine(ModelFolder, TNetEncoding.URL.Decode(AUri)));
+  if TFile.Exists(Named) then
+  begin
+    Result.Outcome := toAsNamed;
+    Exit;
+  end;
+  Result.Reason := ExtractFileName(Named) + ' is not there';
+  FileName := ExtractFileName(Named);
+  Ext := ExtractFileExt(FileName);
+  SearchPlaces(ModelFolder, Named, Places, Trees);
+
+  // The name as given, of the right length, nearest first
+  for var I := 0 to High(Places) do
+  begin
+    Matches := nil;
+    if FolderListing(Places[I], Trees[I]).ByName.TryGetValue(UpperCase(FileName), Found) then
+      for var Each in Found do
+        if LengthFits(Each, ALength) then
+          Matches := Matches + [Each];
+    TArray.Sort<String>(Matches, TComparer<String>.Construct(
+      function(const A, B: String): Integer
+      begin
+        Result := FolderDepth(A) - FolderDepth(B);
+        if Result = 0 then
+          Result := CompareText(A, B);
+      end));
+    if Length(Matches) > 0 then
+    begin
+      Result.Outcome := toOtherFile;
+      Result.Used := Matches[0];
+      Exit;
+    end;
+  end;
+
+  // Beside it, named as the model, or without the copy number
+  ModelBase := ChangeFileExt(ExtractFileName(AModelFile), String.Empty);
+  Stripped := WithoutCopyNumber(ChangeFileExt(FileName, String.Empty));
+  for var I := 0 to High(Places) do
+  begin
+    if Trees[I] then
+      Break;
+    for var Pass := 0 to 1 do
+      for var Each in FolderListing(Places[I], False).Files do
+      begin
+        if not SameText(ExtractFileExt(Each), Ext) then
+          Continue;
+        Base := ChangeFileExt(ExtractFileName(Each), String.Empty);
+        if (((Pass = 0) and SameText(Base, ModelBase)) or
+          ((Pass = 1) and SameText(Base, Stripped))) and LengthFits(Each, ALength) then
+        begin
+          Result.Outcome := toOtherFile;
+          Result.Used := Each;
+          Exit;
+        end;
+      end;
+  end;
+end;
+
+//** @abstract(AName without an image file's extension at its end, after an underscore,
+//** dot, hyphen or space, as an exporter can leave when it names a texture after its file:
+//** @code(T_Wall_png) for @code(T_Wall).)
+//**
+//** @param(AName A file's name without its extension.)
+//**
+//** @returns(The name without it; AName if it has none.)
+function WithoutNamedExtension(const AName: String): String;
+var
+  At: Integer;
+begin
+  Result := AName;
+  At := AName.LastDelimiter('_.- ');
+  if (At > 0) and (At < AName.Length - 1) and IsImageFile('x.' + AName.Substring(At + 1)) then
+    Result := AName.Substring(0, At);
+end;
+
+//** @abstract(The image files in one of SearchPlaces' places named ABase with any extension,
+//** case ignored, nearest first, then PNG, then JPEG, then the rest.)
+//**
+//** @param(AListing The place's listing, from FolderListing.)
+//**
+//** @param(ABase The name, without an extension.)
+//**
+//** @returns(The files, as full paths.)
+function PlaceBaseMatches(const AListing: TFolderListing; const ABase: String):
+  TArray<String>;
+begin
+  if not AListing.ByBase.TryGetValue(UpperCase(ABase), Result) then
+    Exit(nil);
+  TArray.Sort<String>(Result, TComparer<String>.Construct(
+    function(const A, B: String): Integer
+    begin
+      Result := FolderDepth(A) - FolderDepth(B);
+      if Result = 0 then
+        Result := ExtensionRank(A) - ExtensionRank(B);
+      if Result = 0 then
+        Result := CompareText(A, B);
+    end));
+end;
+
+//** @abstract(The placeholder texture, PLACEHOLDER_FILE_NAME in AFolder, made if it is not
+//** there: 16 pixels square, magenta and black in squares of 8.)
+//**
+//** @param(AFolder The folder of models' copies.)
+//**
+//** @returns(Its full path; empty if it could not be made.)
+function PlaceholderTexture(const AFolder: String): String;
+var
+  Image: TImageData;
+  Pixel: PCardinal;
+  Temp: String;
+begin
+  Result := TPath.Combine(AFolder, PLACEHOLDER_FILE_NAME);
+  if TFile.Exists(Result) then
+    Exit;
+  try
+    ForceDirectories(AFolder);
+    InitImage(Image);
+    try
+      if not NewImage(16, 16, ifA8R8G8B8, Image) then
+        Exit(String.Empty);
+      Pixel := Image.Bits;
+      for var Y := 0 to 15 do
+        for var X := 0 to 15 do
+        begin
+          if ((X div 8) + (Y div 8)) mod 2 = 0 then
+            Pixel^ := $FFFF00FF
+          else
+            Pixel^ := $FF000000;
+          Inc(Pixel);
+        end;
+      Temp := ChangeFileExt(Result, '.tmp.png');
+      if not SaveImageToFile(Temp, Image) then
+        Exit(String.Empty);
+      TFile.Move(Temp, Result);
+    finally
+      FreeImage(Image);
+    end;
+  except
+    Result := String.Empty;
+  end;
+end;
+
 //** @abstract(Finds and readies one texture, in the unit's order.)
 //**
 //** @param(AModelFolder The model's folder.)
@@ -666,7 +996,10 @@ end;
 //** @returns(What was done with it.)
 function ResolveTexture(const AModelFolder, AUri, AFolder: String): TSprite3DTextureFix;
 var
-  Named, Png, Why: String;
+  Named, Png, Why, Base: String;
+  Places: TArray<String>;
+  Trees: TArray<Boolean>;
+  Tried: TDictionary<String, Boolean>;
 begin
   Result := Default(TSprite3DTextureFix);
   Result.Named := AUri;
@@ -693,13 +1026,41 @@ begin
   else
     Result.Reason := ExtractFileName(Named) + ' is not there';
 
-  // Then the name as given elsewhere, nearest first; only then the same
-  // name in another format, nearest first
-  for var Pass := 0 to 1 do
-    for var Candidate in TextureSearch(AModelFolder, Named, Pass = 0) do
-      // The file named itself has been tried
-      if not SameText(Candidate, Named) and UseCandidate(Candidate, AFolder, Result) then
-        Exit;
+  // Then the name as given elsewhere, nearest first, stopping at the first
+  // place with one that can be used; only then the same name in another
+  // format, so
+  SearchPlaces(AModelFolder, Named, Places, Trees);
+  Tried := TDictionary<String, Boolean>.Create;
+  try
+    // The file named itself has been tried
+    Tried.Add(UpperCase(Named), True);
+    for var Pass := 0 to 1 do
+      for var I := 0 to High(Places) do
+        for var Candidate in PlaceMatches(FolderListing(Places[I], Trees[I]), Named,
+          Pass = 0) do
+        begin
+          if Tried.ContainsKey(UpperCase(Candidate)) then
+            Continue;
+          Tried.Add(UpperCase(Candidate), True);
+          if UseCandidate(Candidate, AFolder, Result) then
+            Exit;
+        end;
+    // Last, a name with an image's extension in it, as T_Wall_png.png for
+    // T_Wall.png: without it, in the same places, nearest first
+    Base := WithoutNamedExtension(ChangeFileExt(ExtractFileName(Named), String.Empty));
+    if not SameText(Base, ChangeFileExt(ExtractFileName(Named), String.Empty)) then
+      for var I := 0 to High(Places) do
+        for var Candidate in PlaceBaseMatches(FolderListing(Places[I], Trees[I]), Base) do
+        begin
+          if Tried.ContainsKey(UpperCase(Candidate)) then
+            Continue;
+          Tried.Add(UpperCase(Candidate), True);
+          if UseCandidate(Candidate, AFolder, Result) then
+            Exit;
+        end;
+  finally
+    Tried.Free;
+  end;
 end;
 
 //** @abstract(Sets an image's or buffer's uri to AFile, a file name in the copy's folder,
@@ -747,6 +1108,7 @@ var
   Fix: TSprite3DTextureFix;
   Used: TDictionary<TJSONObject, String>;
   Changed: Boolean;
+  ByteLength: Int64;
 begin
   Result := AModelFile;
   AFixes := nil;
@@ -774,6 +1136,27 @@ begin
         if NamesFile(Item, Uri) then
         begin
           Fix := ResolveTexture(Folder, Uri, Models);
+          // One that cannot be found: the placeholder, so the model still
+          // loads, its thumbnail showing where the texture is missing
+          if Fix.Outcome = toMissing then
+            Fix.Used := PlaceholderTexture(Models);
+          AFixes := AFixes + [Fix];
+          if Fix.Used <> String.Empty then
+          begin
+            Used.Add(TJSONObject(Item), Fix.Used);
+            Changed := True;
+          end;
+        end;
+    // Buffers that are not where the model says
+    if Buffers is TJSONArray then
+      for var Item in TJSONArray(Buffers) do
+        if NamesFile(Item, Uri) then
+        begin
+          if not TJSONObject(Item).TryGetValue<Int64>('byteLength', ByteLength) then
+            ByteLength := 0;
+          Fix := ResolveBuffer(FileName, Uri, ByteLength);
+          if Fix.Outcome = toAsNamed then
+            Continue;
           AFixes := AFixes + [Fix];
           if Fix.Used <> String.Empty then
           begin
@@ -801,7 +1184,8 @@ begin
       for var Item in TJSONArray(Buffers) do
         if NamesFile(Item, Uri) then
         begin
-          Target := OSFriendlyPath(TPath.Combine(Folder, TNetEncoding.URL.Decode(Uri)));
+          if not Used.TryGetValue(TJSONObject(Item), Target) then
+            Target := OSFriendlyPath(TPath.Combine(Folder, TNetEncoding.URL.Decode(Uri)));
           if TFile.Exists(Target) then
             SetUri(TJSONObject(Item), CopyIn(Target, Models));
         end;
@@ -825,5 +1209,7 @@ initialization
 
 finalization
   Listings.Free;
+  ImageExtensions.Free;
+  FileHashes.Free;
 
 end.

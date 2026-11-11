@@ -62,7 +62,9 @@ line with peardox/SRDelphiFMX's on 8 November 2026).
 - **Zip names say what is in them** (owner, 11 November 2026): the date
   and time, then a few words for the change, lower case with hyphens,
   such as `2026-11-11-1305-zip-naming-rule.zip`, so they sort in order and
-  can be told apart at a glance. The `BuilderNx` names of before (up to
+  can be told apart at a glance. Each name must sort after the one
+  before it: if the clock would give an earlier time than the last zip's
+  name, as happened on 11 November, use a later one. The `BuilderNx` names of before (up to
   Builder3zj) are not used any more; refer to a zip by its full name.
 - **Files to delete or rename** cannot travel in a zip: list them in the
   reply with the git commands (`git rm ...`, `git mv ...`).
@@ -507,8 +509,188 @@ Read this first; the dated entries below it are the history.
   in this zip); E2250 on `TThread.Queue` and `TTask.Run` in
   `ScanCollection`, which no zip changed, taken to follow from those two:
   if it stays, look there first. A `for var Name` in a form method was
-  renamed, as it shadows the form's `Name`. Vampyre's `WebPDec.pas` gives
-  hints only; leave them. Only glTF for now: OBJ's `.mtl` and
+  renamed, as it shadows the form's `Name`.
+- **GitHub `main` is at `1c672f7`** (14:05), everything to
+  `2026-11-11-1440-compile-fixes.zip`, checked file by file; the owner's
+  IDE set the `.dproj`'s default configuration to Debug, kept. It builds
+  (14:06), the E2250s gone with the other two errors.
+- **`2026-11-11-1450-no-webp.zip`** (follows `1c672f7`; owner's choice):
+  `DONT_LINK_WEBP` added to the project's defines, beside
+  `DONT_LINK_JPEG2000`, so Vampyre's WebP decoder (`WebPDec.pas`) and its
+  compiler hints are left out; a `.webp` texture cannot be converted now.
+  `OSPaths.pas(110)` W1002 `DebugHook` is a Sprite3D common unit's: left
+  as it is (a fix belongs in Sprite3D too).
+- **Kinds of model, step 1, `2026-11-11-1500-model-kinds.zip`** (follows
+  `2026-11-11-1450-no-webp.zip`). Agreed with the owner (14:19-14:25):
+  five kinds, guessed, always to be overridable by the user: static,
+  animated (node animation, no skin), rigged (skin, no animations), rigged
+  and animated (own animations, in the same file or a separate exclusive
+  library file: either happens), animation library (shared, or exclusive
+  to one model; the user sets the scope); plus empty. Steps: (1) count
+  and guess, tag on tiles, check skips libraries: **this zip**; (2) a
+  Mark as menu for the user's kind, kept in a table of its own (like the
+  palette), never overwritten by a rescan or remake; (3) linking
+  libraries to rigged models: suggested by joint names and file names,
+  confirmed by the user, with a shared/exclusive scope. New
+  `src/lib/Sprite3DModelContent.pas`: `ModelContent` counts
+  `TGorillaModel.Def` (a `TModelDef`) as Sprite3D's
+  `Sprite3DGltfExport.CountDef`/`CountModel` do (meshes with
+  `VertexSource`, not `TVertexGroupDef`; `Animations.Count`; controllers
+  with a `Skin`, and its `LinkedJoints.Count`), plus
+  `AnimationManager.Animations.Count`; `GuessModelKind`
+  (`TOKEN_MESH_VERTICES` 64). The database is version 3: `meta` gains
+  `meshes`, `vertices`, `animations`, `skins`, `joints`, `kind` (the key;
+  empty = not counted). `LoadEntryModel` counts every model it loads and
+  saves the counts at once for a model that has a thumbnail but no kind.
+  Tiles have a badge (`TAssetEntry.Badge`, `UpdateBadge`); the details
+  line adds `EntryContentText`; the thumbnail check has `tvLibrary` and a
+  kind column.
+- **Missing buffers, `2026-11-11-1510-missing-buffers.zip`** (follows
+  `2026-11-11-1500-model-kinds.zip`). Quaternius's Modular SciFi MegaKit:
+  `Decal_Line_90.gltf` names `Decal_Line_90_001.bin`, not there (a Blender
+  copy number, presumably; the owner's folder listing not seen).
+  `ResolveBuffer` in `Sprite3DModelTextures`: the name as given, nearest
+  first in `SearchPlaces` (shared with `TextureSearch` now); then, in the
+  folder named and the model's, one with the same extension named as the
+  model, or as the name without its copy number (`WithoutCopyNumber`: one
+  trailing number and the `_ . - space` before it); always only a file of
+  the buffer's `byteLength` (`LengthFits`). Found buffers go into the copy
+  as textures do; `TSprite3DTextureFix.IsBuffer` marks them for
+  `ReportTextures`. `FolderImages` is `FolderFiles` now, listing every
+  file; `TextureSearch` filters `IsImageFile` itself. Known gap: a model's
+  key hashes a missing buffer by its name only, so a change to the buffer
+  found elsewhere does not change the key.
+- **Jobs, `2026-11-11-1520-resumable-jobs.zip`** (follows
+  `2026-11-11-1510-missing-buffers.zip`). Owner: an interrupted scan
+  restarted by itself when the Library was opened again, and only the end
+  of the collection it was on; wanted a **Resume Scan** button shown only
+  when there is work left, the whole queue persisted (an artist import
+  finishes after a restart), and an abort that does what stopping did
+  before. Every piece of work is now a job on `FBulkQueue`: `StartJob`
+  (`import`, `rescan`, `remake`) or, made in `HashesDone` when a
+  collection has thumbnails to make and no job runs, a `collection` job.
+  `SaveJob` writes `library-job.json` (`JobFile`, settings folder: kind,
+  title, `current` (`FBulkCurrent`), `queue`, `first`, `summary`, `errors`,
+  `rescan`, `remakeBefore`) at the start and at every `NextBulk` step;
+  `ClearJob` at the end. `PauseJob` (closing the form; `LeaveJob` for
+  another collection, artist, collection added or deleted, which drops a
+  `collection` job instead) sets `FJobPaused`: `HashesDone` then only
+  shows (no `MakeNext`), status `PausedText`. `ShowLibrary` loads a saved
+  job as paused (`LoadJob`: current first, then the queue, unknown ids
+  left out). `FResumeButton` (Resume Scan) and `FAbortButton` (Abort Scan)
+  are made in `FormCreate` in `CollectionBar` (`UpdateJobButtons`).
+  `StopBulk` now drops the job, running or paused (and its file).
+  Remaking is by time, not a flag: `FRemakeBefore` / `FBulkRemakeBefore`
+  (a `TDateTime`, 0 for none; `OpenCollection`'s third parameter) and
+  `MadeSinceRemake` against `Meta.Created`, so a resumed remake keeps
+  what it made. Untested: the buttons' place in `CollectionBar`.
+- **`Default()` hidden, `2026-11-11-1530-default-hidden.zip`** (follows
+  `2026-11-11-1520-resumable-jobs.zip`). `Sprite3DModelContent` failed to
+  compile at `Result := Default(TSprite3DModelContent)` (E2066 and a
+  cascade, 14:44): **`Gorilla.DefTypes` declares a `Default` of its own**,
+  hiding the intrinsic, so in any unit that uses it, zero records field
+  by field instead, as Sprite3D's `CountModel` does.
+- **Grouping and All, `2026-11-11-1540-grouping-all-folders.zip`** (follows
+  `2026-11-11-1530-default-hidden.zip`; built clean before it). Owner:
+  the classifier suited only KayKit; Kenney names `blaster-a`, others put
+  the group last; one-model groups should go to an Unsorted group; and
+  Choose Folders to Import wants an All box (a folder per model).
+  `Sprite3DBuilderHelpers`: `AssetNameWords` (split at `_ - space .`, or
+  at small-to-capital for a name with none; numbers and single letters
+  dropped), `AssetGroupName` (first word), `AssetGroupNames` (a whole
+  collection: first words or last words, whichever puts more models in
+  groups of 2+, first on a tie). `HashesDone` groups the models the
+  palette does not place with `AssetGroupNames`, then `MergePluralGroups`,
+  then `CollapseSmallGroups` (fewer than `MIN_GROUP_SIZE`, 2, and not a
+  palette group already: `UNSORTED_GROUP`, `unsorted`). **Regroup
+  Collection...** (`RegroupItem`, collection menu, asks) saves the
+  collection with no groups and opens it again. `TImportForm.FAllCheck`
+  (made in code, right of `FormatLayout`) ticks all or none, and follows
+  the boxes (`UpdateOK`). Checked in Python on KayKit, Kenney, last-word,
+  CamelCase and Quaternius-style names.
+- **No animation baking, `2026-11-11-1555-no-animation-baking-fixed.zip`**
+  (follows `2026-11-11-1540-grouping-all-folders.zip`; replaces
+  `2026-11-11-1550-no-animation-baking.zip`, which went out with the old
+  files, the edit having failed). Owner (14:57): rigged models flood the
+  debug output and slow the Library: Gorilla3D's `Caching 1 animations:
+  elapsed time 40-100 ms` for each, from `LoadModelFile`'s
+  `TAnimationCachingFlag.VertexPosition`, which a thumbnail does not
+  need. `LoadModelFile` has `ACacheAnimations` (default False: `[]`);
+  Builder4's placed models may want it True. The other lines are
+  harmless Gorilla3D/FMX notices: `node X_Armature in hierarchy, but not
+  attached to skin` (a Blender export's armature node that is not one of
+  the skin's joints) and `FMX.Ani.TAnimation.AniThread not available
+  anymore` (Gorilla3D's render clock drives animation, not FMX's thread).
+  Rule: **check an edit script's result before zipping.**
+- **Faster texture search, `2026-11-11-1600-faster-texture-search.zip`**
+  (follows `2026-11-11-1555-no-animation-baking-fixed.zip`). The owner's
+  import log (15:08): Quaternius's Modular SciFi MegaKit models in
+  `glTF\Columns`, `Walls`, `Platforms` name `T_Trim_*.png` that are one
+  folder up, in `glTF\`; found, but each model took 3-9 s to load (about
+  1 s a texture), the copy then loading in 0.3 s. Causes: the search
+  gathered every place's matches (up to the whole Quaternius tree) before
+  choosing; `IsImageFile` (Vampyre's `IsFileFormatSupported`) ran on every
+  file of every listing for every texture; every texture was SHA-256
+  hashed again for every model (`CopyIn`, `MakePng`). Now:
+  `TFolderListing` is a class with `ByName` and `ByBase` (images only)
+  indexes, owned by `Listings` (`FolderListing` replaces `FolderFiles`);
+  `IsImageFile` is cached by extension (`ImageExtensions`);
+  `PlaceMatches` (replaces `TextureSearch`) looks one place up in the
+  indexes; `ResolveTexture` tries place by place and stops at the first
+  usable file; `ContentHash` keeps each file's SHA-256 (`FileHashes`) until
+  its size or write time changes; `LISTING_KEEP_MS` is 30 minutes. All
+  freed in the unit's finalization.
+- **Missing textures, `2026-11-11-1610-missing-texture-placeholder.zip`**
+  (follows `2026-11-11-1600-faster-texture-search.zip`). A model named
+  `T_Enemies_BaseColor_png.png`, not found; its copy kept the name, and
+  Gorilla3D fails the whole model on one missing image. Now a third pass
+  in `ResolveTexture`: the name less an image extension left in it
+  (`WithoutNamedExtension`: after the last `_ . - space`, if
+  `IsImageFile('x.' + it)`), any image extension (`PlaceBaseMatches`),
+  same places. A texture still `toMissing` gets the placeholder,
+  `PLACEHOLDER_FILE_NAME` (`missing-texture.v1.png`, 16 px magenta and
+  black, `PlaceholderTexture`) in the copy, so the model loads and the
+  thumbnail shows the gap; the error log line says so. Buffers have no
+  placeholder: a model without its geometry still fails.
+- **Repeated folders marked, `2026-11-11-1620-mark-repeated-folders.zip`**
+  (follows `2026-11-11-1610-missing-texture-placeholder.zip`). The
+  owner's Quaternius import (15:29): all six failures were in Sci-Fi
+  Essentials Kit's `Engine Projects\Godot\...` folders, copies of the
+  `glTF\` models (Godot-renamed textures), taken because all four folders
+  were ticked; the 2-minute gaps were the debugger stopped on first-chance
+  exceptions. Owner chose: mark repeats in Choose Folders to Import (not
+  hide duplicates in a collection). `RepeatedFolders` in
+  `Sprite3DBuilderImportForm`: a folder repeats one of the same format
+  holding more than half its names that comes before it (more models; or
+  as many and fewer folders deep; or earlier); shown as `(same models as
+  ...)` after its count, with a hint. Nothing is ticked or unticked by it.
+  It went out without `System.Generics.Collections` in the unit's uses
+  (E2003 `TDictionary<,>` and a cascade, 15:33); fixed in
+  `2026-11-11-1625-import-form-uses.zip`. Rule: **when a unit gains a
+  generic, check its uses clause.**
+- **Preview label colour, `2026-11-11-1630-preview-label-colour.zip`**
+  (follows `2026-11-11-1625-import-form-uses.zip`). "Model Preview" was
+  `$A0A0A0` whatever the background, hard to read on the checker
+  (`$CCCCCC`/`$999999`), grey and white. `PREVIEW_LABEL_COLOURS`, set in
+  `SetPreviewBackground`: near-black on checker and grey, light grey on
+  black, dark grey on white.
+- **Sprite3D's textures note, `2026-11-11-1640-sprite3d-textures-note.zip`**
+  (for the **Sprite3D** repository, paths from its root; the first zip for
+  it from this work). Owner (16:08): Sprite3D will need the same texture
+  fixes, so write them up in its `notes/`. `notes/textures.md`: each
+  problem with the log line that shows it (PSD refused by extension;
+  textures and buffers not where the uri says; full paths in a uri not
+  taken; PSD extra channels are not alpha; GL 1282 on 24-bit PNGs), how
+  `Sprite3DModelTextures` deals with each, the speed fixes, the compile
+  pitfalls, and the five steps for Sprite3D (Vampyre submodule, search
+  paths and defines, the unit unchanged, `PrepareModelTextures` in
+  `LoadModelFile` keyed by the model file's SHA-256 and keeping
+  `VertexPosition`, the MPL licence). Sprite3D's `CLAUDE.md` (the notes
+  lists, a *To do: textures* section before *Done: ImportTests*) and
+  `README.md` (*Further reading*) gained it, edited from GitHub's copies
+  (`fc70295`): if the owner's are ahead, apply those edits by hand. This
+  entry went out in `2026-11-11-1641-handover-textures-note.zip`.
+- Textures are fixed for glTF only for now: OBJ's `.mtl` and
   FBX are loaded as they are. Licence: `licences/Vampyre-LICENSE.txt` (a
   notice with the source address, then the MPL 2.0), in File, Licences and
   `docs/licences-required.md`. Project: Vampyre's four folders on the search

@@ -7,7 +7,10 @@
 //** with its format and how many models it holds, each with a box to tick. The preferred
 //** format, a drop-down of the formats found, ticks the folders of that format, less any that
 //** hold the same models as one already ticked (DefaultModelFolders); the boxes can then be
-//** changed freely. OK needs at least one ticked.
+//** changed freely, or all ticked or cleared at once with All, as when each model has a
+//** folder of its own. OK needs at least one ticked. A folder that repeats another's models
+//** (RepeatedFolders), as an engine project's copy of a pack does, says so after its count,
+//** so that ticking All does not bring the copy in unseen.
 //**
 //** An artist import asks it only when a pack has more than one folder of the format chosen,
 //** listing those alone, with an introduction naming the pack, Skip in place of Cancel, and
@@ -77,12 +80,19 @@ type
     //** @abstract(True to tick only the folder with the most models of those
     //** DefaultModelFolders takes.)
     FTickLargest: Boolean;
+    //** @abstract(All, at the right of FormatLayout: ticks every folder, or none; ticked
+    //** while every one is, as when each model has a folder of its own.)
+    FAllCheck: TCheckBox;
+    //** @abstract(Ticks every folder, or none, as FAllCheck says.)
+    //**
+    //** @param(Sender FAllCheck.)
+    procedure AllCheckChange(Sender: TObject);
     //** @abstract(Ticks the folders DefaultModelFolders takes for format AFormat, or, with
     //** FTickLargest, the one of them with the most models.)
     //**
     //** @param(AFormat The format.)
     procedure TickFormat(const AFormat: String);
-    //** @abstract(Enables OK if any folder is ticked.)
+    //** @abstract(Enables OK if any folder is ticked, and ticks FAllCheck if every one is.)
     procedure UpdateOK;
   end;
 
@@ -113,7 +123,7 @@ function ChooseModelFolders(const ARoots: TArray<String>;
 implementation
 
 uses
-  System.StrUtils;
+  System.StrUtils, System.Generics.Collections;
 
 {$R *.fmx}
 
@@ -140,6 +150,71 @@ begin
   Result := AFolder;
 end;
 
+//** @abstract(How many path delimiters AFolder has: how deep it is.)
+//**
+//** @param(AFolder The folder.)
+//**
+//** @returns(The count.)
+function FolderDepth(const AFolder: String): Integer;
+begin
+  Result := 0;
+  for var C in AFolder do
+    if C = PathDelim then
+      Inc(Result);
+end;
+
+//** @abstract(For each of AFolders, the one it repeats, if any: a folder of the same format
+//** holding more than half its models' names, as an engine project's copy of a pack does,
+//** that comes before it: one with more models, or as many but fewer folders deep, or as
+//** many and as deep but earlier in the list. Of several, the one holding most of them.)
+//**
+//** @param(AFolders The folders, from FindModelFolders.)
+//**
+//** @returns(One index into AFolders for each, in their order; -1 for one that repeats none.)
+function RepeatedFolders(const AFolders: TArray<TModelFolder>): TArray<Integer>;
+var
+  Names: TDictionary<String, Boolean>;
+  Same, Best: Integer;
+
+  function Before(const A, B: Integer): Boolean;
+  begin
+    if AFolders[A].Count <> AFolders[B].Count then
+      Exit(AFolders[A].Count > AFolders[B].Count);
+    if FolderDepth(AFolders[A].Folder) <> FolderDepth(AFolders[B].Folder) then
+      Exit(FolderDepth(AFolders[A].Folder) < FolderDepth(AFolders[B].Folder));
+    Result := A < B;
+  end;
+
+begin
+  SetLength(Result, Length(AFolders));
+  for var I := 0 to High(AFolders) do
+  begin
+    Result[I] := -1;
+    Best := 0;
+    for var J := 0 to High(AFolders) do
+    begin
+      if (J = I) or (AFolders[J].Format <> AFolders[I].Format) or not Before(J, I) then
+        Continue;
+      Names := TDictionary<String, Boolean>.Create;
+      try
+        for var Name in AFolders[J].Names do
+          Names.AddOrSetValue(Name, True);
+        Same := 0;
+        for var Name in AFolders[I].Names do
+          if Names.ContainsKey(Name) then
+            Inc(Same);
+      finally
+        Names.Free;
+      end;
+      if (Same * 2 > Length(AFolders[I].Names)) and (Same > Best) then
+      begin
+        Best := Same;
+        Result[I] := J;
+      end;
+    end;
+  end;
+end;
+
 function ChooseModelFolders(const ARoots: TArray<String>;
   const AFolders: TArray<TModelFolder>; var APreferred: String;
   out AChosen: TArray<TModelFolder>; const AIntro: String; const ATickLargest: Boolean;
@@ -148,6 +223,7 @@ var
   Dialog: TImportForm;
   Item: TListBoxItem;
   Chosen: Integer;
+  Repeats: TArray<Integer>;
 begin
   AChosen := nil;
   if Length(AFolders) = 0 then
@@ -171,6 +247,13 @@ begin
         String.Join(', ', ARoots)]);
     if ACancelText <> String.Empty then
       Dialog.CancelButton.Text := ACancelText;
+    Dialog.FAllCheck := TCheckBox.Create(Dialog);
+    Dialog.FAllCheck.Parent := Dialog.FormatLayout;
+    Dialog.FAllCheck.Align := TAlignLayout.Right;
+    Dialog.FAllCheck.Width := 60;
+    Dialog.FAllCheck.Margins.Left := 12;
+    Dialog.FAllCheck.Text := 'All';
+    Dialog.FAllCheck.OnChange := Dialog.AllCheckChange;
     Dialog.FormatCombo.Clear;
     Chosen := 0;
     for var I := 0 to High(Dialog.FFormats) do
@@ -181,13 +264,23 @@ begin
         Chosen := I;
     end;
     Dialog.FolderList.Clear;
-    for var Folder in AFolders do
+    // A folder that repeats another's models says so, so that ticking All
+    // does not bring a copy in unseen
+    Repeats := RepeatedFolders(AFolders);
+    for var I := 0 to High(AFolders) do
     begin
       Item := TListBoxItem.Create(Dialog.FolderList);
       Item.Parent := Dialog.FolderList;
-      Item.Text := Format('%s   -   %d %s', [ShownPath(ARoots, Folder.Folder), Folder.Count,
-        ModelFormatName(Folder.Format)]);
-      Item.Hint := Folder.Folder;
+      Item.Text := Format('%s   -   %d %s', [ShownPath(ARoots, AFolders[I].Folder),
+        AFolders[I].Count, ModelFormatName(AFolders[I].Format)]);
+      Item.Hint := AFolders[I].Folder;
+      if Repeats[I] >= 0 then
+      begin
+        Item.Text := Item.Text + '   (same models as ' +
+          ShownPath(ARoots, AFolders[Repeats[I]].Folder) + ')';
+        Item.Hint := Item.Hint + sLineBreak + 'Most of its models have the names of those in ' +
+          AFolders[Repeats[I]].Folder + ': a copy, such as an engine project''s.';
+      end;
       Item.ShowHint := True;
     end;
     Dialog.FTicking := True;
@@ -240,13 +333,39 @@ end;
 
 procedure TImportForm.UpdateOK;
 var
-  Any: Boolean;
+  Any, Every: Boolean;
 begin
   Any := False;
+  Every := FolderList.Count > 0;
   for var I := 0 to FolderList.Count - 1 do
     if FolderList.ListItems[I].IsChecked then
-      Any := True;
+      Any := True
+    else
+      Every := False;
   OKButton.Enabled := Any;
+  if (FAllCheck <> nil) and (FAllCheck.IsChecked <> Every) then
+  begin
+    FTicking := True;
+    try
+      FAllCheck.IsChecked := Every;
+    finally
+      FTicking := False;
+    end;
+  end;
+end;
+
+procedure TImportForm.AllCheckChange(Sender: TObject);
+begin
+  if FTicking then
+    Exit;
+  FTicking := True;
+  try
+    for var I := 0 to FolderList.Count - 1 do
+      FolderList.ListItems[I].IsChecked := FAllCheck.IsChecked;
+  finally
+    FTicking := False;
+  end;
+  UpdateOK;
 end;
 
 procedure TImportForm.FormatComboChange(Sender: TObject);

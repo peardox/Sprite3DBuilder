@@ -411,8 +411,12 @@ function DefaultModelDir: String;
 
 //** @abstract(Replaces a model's contents with a model file.)
 //**
-//** Clears AModel and loads AFileName into it, its animations baked but none played.
-//** Blocks while the file loads.
+//** Clears AModel and loads AFileName into it, none of its animations played. Blocks while
+//** the file loads.
+//**
+//** Its animations are loaded, but, unless ACacheAnimations, not baked: baking (Gorilla3D's
+//** vertex position cache) makes them play faster, but takes 40 to 100 ms or more for each
+//** animated model, which a still picture, such as a thumbnail, does not need.
 //**
 //** @param(AModel The model to load into; its old contents are removed first.)
 //**
@@ -421,12 +425,15 @@ function DefaultModelDir: String;
 //** @param(ABox The model's bounding box straight after loading, before anything is added
 //** to it or it is moved, in its own coordinates.)
 //**
+//** @param(ACacheAnimations True to bake the animations, for a model that will play them;
+//** False, the default, not to.)
+//**
 //** @returns(The names of the model's animations in sorted order; empty if it has none.)
 //**
 //** @raises(Exception If the file cannot be read or loaded; AModel is then left cleared or
 //** part-loaded.)
 function LoadModelFile(const AModel: TGorillaModel; const AFileName: String;
-  out ABox: TBoundingBox): TArray<String>;
+  out ABox: TBoundingBox; const ACacheAnimations: Boolean = False): TArray<String>;
 
 
 
@@ -483,17 +490,38 @@ function GroupIconsFolder: String;
 //** @returns(Their full paths; empty if there are none or the folder cannot be read.)
 function AssetModelFiles(const AFolder: String): TArray<String>;
 
-//** @abstract(The group a model is shown in: the first word of its name, before the first
-//** underscore, in lower case.)
+//** @abstract(The words of a model's name, in lower case, as grouping takes them.)
 //**
-//** So @code(wall_corner_small) is in @code(wall), and a name with no underscore is a group
-//** of its own name. The asset form also puts a plural group, such as @code(crates), with its
-//** singular, @code(crate), when a folder has both.
+//** The name is split at underscores, hyphens, spaces and dots; a name with none of those
+//** is split where a capital follows a small letter, so @code(WallCorner) is
+//** @code(wall corner). Words that only tell variants apart are left out: numbers, and
+//** single letters, such as the @code(a) of @code(blaster-a).
+//**
+//** @param(AName The model's name, its file's name without the extension.)
+//**
+//** @returns(The words; empty if none is left.)
+function AssetNameWords(const AName: String): TArray<String>;
+
+//** @abstract(The group a model is put in when nothing has chosen one: the first word of
+//** its name (AssetNameWords), or its whole name in lower case if it has none.)
 //**
 //** @param(AName The model's name, its file's name without the extension.)
 //**
 //** @returns(The group's name; never empty for a name that is not.)
 function AssetGroupName(const AName: String): String;
+
+//** @abstract(The groups the models of one collection are put in when nothing has chosen
+//** them, one for each name, in ANames' order.)
+//**
+//** Kits name their models in different ways: @code(wall_corner) has its group first,
+//** @code(small-tree) last. Each model is put in its first word (AssetNameWords), or each
+//** in its last, whichever puts more of them in groups of two or more; the first, if it is
+//** as good. A name with no words is a group of its own name, in lower case.
+//**
+//** @param(ANames The models' names, their files' names without the extension.)
+//**
+//** @returns(Their groups.)
+function AssetGroupNames(const ANames: TArray<String>): TArray<String>;
 
 type
   //** @abstract(A folder holding models of one format, as FindModelFolders finds it.)
@@ -1007,15 +1035,97 @@ begin
   end;
 end;
 
+function AssetNameWords(const AName: String): TArray<String>;
+var
+  Parts: TArray<String>;
+  Word: String;
+  Start: Integer;
+begin
+  Result := nil;
+  Parts := AName.Split(['_', '-', ' ', '.'], TStringSplitOptions.ExcludeEmpty);
+  // One part: split where a capital follows a small letter
+  if Length(Parts) = 1 then
+  begin
+    Parts := nil;
+    Start := 1;
+    for var I := 2 to Length(AName) do
+      if CharInSet(AName[I], ['A'..'Z']) and CharInSet(AName[I - 1], ['a'..'z']) then
+      begin
+        Parts := Parts + [Copy(AName, Start, I - Start)];
+        Start := I;
+      end;
+    Parts := Parts + [Copy(AName, Start, MaxInt)];
+  end;
+  for var Part in Parts do
+  begin
+    Word := Part.ToLower;
+    // Variants: numbers and single letters
+    if (Word.Length <= 1) or (StrToIntDef(Word, -1) >= 0) then
+      Continue;
+    Result := Result + [Word];
+  end;
+end;
+
 function AssetGroupName(const AName: String): String;
 var
-  At: Integer;
+  Words: TArray<String>;
 begin
-  At := AName.IndexOf('_');
-  if At > 0 then
-    Result := AName.Substring(0, At).ToLower
+  Words := AssetNameWords(AName);
+  if Length(Words) > 0 then
+    Result := Words[0]
   else
     Result := AName.ToLower;
+end;
+
+function AssetGroupNames(const ANames: TArray<String>): TArray<String>;
+var
+  Firsts, Lasts: TArray<String>;
+  Words: TArray<String>;
+
+  // How many of AGroups are in a group of two or more
+  function Grouped(const AGroups: TArray<String>): Integer;
+  var
+    Counts: TDictionary<String, Integer>;
+    Count: Integer;
+  begin
+    Result := 0;
+    Counts := TDictionary<String, Integer>.Create;
+    try
+      for var Group in AGroups do
+      begin
+        if not Counts.TryGetValue(Group, Count) then
+          Count := 0;
+        Counts.AddOrSetValue(Group, Count + 1);
+      end;
+      for var Group in AGroups do
+        if Counts[Group] >= 2 then
+          Inc(Result);
+    finally
+      Counts.Free;
+    end;
+  end;
+
+begin
+  SetLength(Firsts, Length(ANames));
+  SetLength(Lasts, Length(ANames));
+  for var I := 0 to High(ANames) do
+  begin
+    Words := AssetNameWords(ANames[I]);
+    if Length(Words) = 0 then
+    begin
+      Firsts[I] := ANames[I].ToLower;
+      Lasts[I] := Firsts[I];
+    end
+    else
+    begin
+      Firsts[I] := Words[0];
+      Lasts[I] := Words[High(Words)];
+    end;
+  end;
+  if Grouped(Lasts) > Grouped(Firsts) then
+    Result := Lasts
+  else
+    Result := Firsts;
 end;
 
 type
@@ -1126,14 +1236,17 @@ const
   BOUNDS_CACHE_FOLDER = 'bounds';
 
 function LoadModelFile(const AModel: TGorillaModel; const AFileName: String;
-  out ABox: TBoundingBox): TArray<String>;
+  out ABox: TBoundingBox; const ACacheAnimations: Boolean): TArray<String>;
 var
   Names: TStringList;
   I: Integer;
   Ani: TArray<TGorillaAnimation>;
 begin
   AModel.Clear;
-  AModel.LoadFromFile(nil, OSFriendlyPath(AFileName), [TAnimationCachingFlag.VertexPosition]);
+  if ACacheAnimations then
+    AModel.LoadFromFile(nil, OSFriendlyPath(AFileName), [TAnimationCachingFlag.VertexPosition])
+  else
+    AModel.LoadFromFile(nil, OSFriendlyPath(AFileName), []);
 
   Names := TStringList.Create;
   try
