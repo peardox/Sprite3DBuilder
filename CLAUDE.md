@@ -497,7 +497,18 @@ Read this first; the dated entries below it are the history.
   the biggest) and Skip as the cancel text; Skip passes the pack over
   (`NotChosen`, in the summary). The wider texture search stays: it costs
   nothing when textures are where they are named. The owner will clear
-  the library by hand to test. Only glTF for now: OBJ's `.mtl` and
+  the library by hand to test.
+- **Compile fixes, `2026-11-11-1440-compile-fixes.zip`** (follows
+  `2026-11-11-1430-artist-import-choose-folders.zip`). The owner's build
+  (14:02): `PAlphaColorArray` is not declared in any unit the form uses
+  (`MeasureVisible` now reads each pixel through `PByte` arithmetic);
+  `SEARCH_LEVELS_UP` undeclared, as the owner's `Sprite3DModelTextures.pas`
+  was older than `2026-11-11-1420-texture-search-wider.zip`'s (sent again
+  in this zip); E2250 on `TThread.Queue` and `TTask.Run` in
+  `ScanCollection`, which no zip changed, taken to follow from those two:
+  if it stays, look there first. A `for var Name` in a form method was
+  renamed, as it shadows the form's `Name`. Vampyre's `WebPDec.pas` gives
+  hints only; leave them. Only glTF for now: OBJ's `.mtl` and
   FBX are loaded as they are. Licence: `licences/Vampyre-LICENSE.txt` (a
   notice with the source address, then the MPL 2.0), in File, Licences and
   `docs/licences-required.md`. Project: Vampyre's four folders on the search

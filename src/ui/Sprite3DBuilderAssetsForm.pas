@@ -1648,7 +1648,7 @@ function MeasureVisible(const ABitmap: TBitmap; out AVisible: Double;
   out AMaxAlpha: Integer): Boolean;
 var
   Data: TBitmapData;
-  Row: PAlphaColorArray;
+  Row: PByte;
   Alpha, Count: Integer;
   Direct: Boolean;
 begin
@@ -1667,8 +1667,9 @@ begin
       Row := Data.GetScanline(Y);
       for var X := 0 to Data.Width - 1 do
       begin
+        // The pixel's 32 bits, read as one number: alpha is its top byte
         if Direct then
-          Alpha := Row[X] shr 24
+          Alpha := PCardinal(Row + X * 4)^ shr 24
         else
           Alpha := TAlphaColorRec(Data.GetPixel(X, Y)).A;
         if Alpha > AMaxAlpha then
@@ -1785,8 +1786,8 @@ begin
   FBackgroundCombo.Position.Point := TPointF.Create(PreviewArea.Width -
     FBackgroundCombo.Width - 4, 4);
   FBackgroundCombo.CanFocus := False;
-  for var Name in PREVIEW_BACKGROUND_NAMES do
-    FBackgroundCombo.Items.Add(Name);
+  for var Shown in PREVIEW_BACKGROUND_NAMES do
+    FBackgroundCombo.Items.Add(Shown);
   FBackgroundCombo.Hint := 'What the preview shows behind the model';
   FBackgroundCombo.ShowHint := True;
   FBackgroundCombo.OnChange := BackgroundComboChange;
