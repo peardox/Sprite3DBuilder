@@ -5,7 +5,7 @@ the owner works, the rules for the code, and where the work has got to.
 `README.md` describes the program for its users and developers; this file
 is for Claude. Read both.
 
-Last updated: 11 November 2026, 05:10.
+Last updated: 11 November 2026, 05:30.
 
 ## Starting a new conversation
 
@@ -361,6 +361,43 @@ gone up.
   the executable. A leak introduced by a change shows up there.
 
 ## Where the work is
+
+### Handover (11 November 2026, 05:30)
+
+Read this first; the dated entries below it are the history.
+
+- **GitHub `main` is at `e15caac`** ("obj import woes"), which is
+  **Builder3zf** exactly (checked file by file). The zips after it, not
+  yet pushed, each following the one before: **Builder3zg** (folder
+  dialogs start at the last folder chosen, or the nearest one above it
+  still there, never the assets folder; Clear Library keeps the last
+  folder and preferred format; grab poll every 50 ms), **Builder3zh**
+  (log header gives the build time; StateText counts each queued step),
+  **Builder3zi** (the fix for OBJ grabs stalling: `PostStep`/`Poll` in
+  `Sprite3DOffscreen`). The owner tested 3zi: "this is looking better".
+  The next zip follows Builder3zi. Zip names after `3z` go `3za`, `3zb`,
+  ...; Builder4 is kept for placing models on the level.
+- **The Library is done for now** (owner). Artists above collections,
+  counts in the bars, 128 x 128 tiles, artist import into the artist
+  shown, Skip turning formats down, the import log and the skip list.
+- **Open items, for later, in no order:**
+  - An FBX import issue the owner saw and left for later; ask what it was.
+  - Kenney names models with hyphens (`blaster-a`), so `AssetGroupName`,
+    which splits at the first underscore, gives one group per model;
+    split at hyphens too.
+  - Speed: the fixed 120 ms settle before each grab (`THUMBNAIL_SETTLE_MS`)
+    could be one drawn frame now that grabs come back promptly.
+  - Why OBJ grabs (and only OBJ) lost their queued steps is not known;
+    `Poll` gets round it. If stalls come back, the log line after
+    `not back after 4 s` says where (`polled n times, m with something
+    to run`).
+  - `src/lib/Sprite3DOffscreen.pas` came from Sprite3D and now differs
+    from its copy there (`StateText`, `Poll`, `PostStep`); port back if
+    Sprite3D wants it.
+  - The import log (`library-import.log`), the loading marker and
+    `library-skipped.txt` live in the settings folder
+    (`%APPDATA%\Sprite3DBuilder` on Windows).
+- **Next: Builder4**, below.
 
 ### State (10 November 2026, 22:30)
 
@@ -749,6 +786,42 @@ logs `StateText`, cancels, invalidates the viewport and grabs again, then
 passes over. Next: read StateText in the owner's log (passes ended 0 =
 the viewport stopped drawing; ended > 0 with pending = HandleEndRender's
 stage logic; not pending = the worker/queue).
+
+Builder3zg (owner 05:08): the log answered it: every stalled grab was
+"busy True, pending False, enabled True" with hundreds of render passes
+ended, so the drawings were read and the worker started, but nothing
+queued for the main thread ran: not even ProcessDrawing's ForceQueue that
+switches the pass off (enabled still True). The viewport drawing every
+frame starves FMX's idle, where `CheckSynchronize` runs; the timer firing
+let it through (each retry came back in ~30 ms). Fix: `FGrabTimer` polls
+every `GRAB_POLL_MS` (50) and calls `CheckSynchronize`; `FGrabWatch`
+times each try against `GRAB_TIMEOUT_MS`. Sprite3D never sees it as it
+grabs once, on demand. Also: folder dialogs no longer fall back to the
+assets folder (`StartFolder` climbs to the nearest folder still there,
+else empty), and `ClearLibrary` keeps `LastFolder` and `PreferredFormat`.
+
+Builder3zh (owner 05:15): the next log looked the same (stalls of 4 s,
+"pending False, enabled True", retry fine in ~30 ms); not known whether it
+was a 3zg build. The log header now gives the program's build time.
+`StateText` also counts ProcessDrawing's queued switch-offs run, workers
+begun/ended, results run and Deliver steps run (`FSwitchOffs`,
+`FWorkerStarts`, `FWorkerEnds`, `FResultRuns`, `FDeliverRuns`); the form
+adds how often `GrabTimerTimer` ran `CheckSynchronize` and how often it
+found something (`FPumps`, `FPumpsUseful`).
+
+Builder3zi (owner 05:21, 3zh log, OBJ only; FBX and glTF fine): every
+stall was "switch-offs run 0, workers begun 1, ended 1, results run 0,
+deliveries run 0; the queue run 64 times, 0 with something in it": the
+worker finished and queued its result, yet `CheckSynchronize` found
+nothing to run, so TThread's queue held the steps where the poll could not
+reach them. Lib: every step `TSprite3DOffscreen` leaves for the main
+thread now goes through `PostStep`: posted to a thread-safe list in the
+shared alive flag (`IAliveFlag.Post`/`Take`, `TAliveFlag.FSteps`) and
+also `TThread.ForceQueue`d to `RunSteps`; the new public `Poll` runs them
+too, whichever comes first, each once. Form: `GrabTimerTimer` calls
+`FOffscreen.Poll` instead of `CheckSynchronize`. Note: this unit came from
+Sprite3D and now differs from its copy there (StateText, Poll); port back
+if Sprite3D wants it.
 
 **Next, Builder4:** dragging a thumbnail from the Assets form onto the
 level, with a bounding box showing where it will go, snapped to the grid,

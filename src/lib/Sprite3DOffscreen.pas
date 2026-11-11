@@ -269,6 +269,11 @@ type
     FPending: Boolean;   // waiting for the frame to read back
     FBeginRenders: Integer;   // render passes begun since the last Grab, for StateText
     FEndRenders: Integer;     // render passes ended since the last Grab, for StateText
+    FSwitchOffs: Integer;     // ProcessDrawing's queued switch-offs run, for StateText
+    FWorkerStarts: Integer;   // ProcessDrawing's workers begun, for StateText
+    FWorkerEnds: Integer;     // ProcessDrawing's workers that queued their result
+    FResultRuns: Integer;     // those results run on the main thread, for StateText
+    FDeliverRuns: Integer;    // Deliver's queued steps run, for StateText
     FStage: Integer;     // how this grab draws; see Grab
     FColours: TArray<TAlphaColor>; // the background of each drawing
     FReads: TArray<TBytes>;        // each drawing, RGBA rows bottom first
@@ -432,9 +437,19 @@ type
     function SinglePassOverscan(const AWidth, AHeight: Integer): Integer;
     //** @abstract(True from a successful Grab until its procedure has run or Cancel.)
     property Busy: Boolean read FBusy;
+    //** @abstract(Runs, now, the steps the grab has left for the main thread, oldest first.)
+    //**
+    //** Each step is also queued for the main thread (TThread.ForceQueue), and whichever
+    //** comes first runs it, once. Call this from a timer while a grab is under way: a
+    //** viewport drawing every frame has been seen to hold the queue up for seconds. Main
+    //** thread only.
+    //**
+    //** @returns(True if a step was run.)
+    function Poll: Boolean;
     //** @abstract(How the grab under way stands, for a log: busy, waiting for a drawing, how
-    //** it draws, which drawing it is on, whether the pass is enabled, and how many render
-    //** passes have begun and ended since Grab was called.)
+    //** it draws, which drawing it is on, whether the pass is enabled, and, since Grab was
+    //** called, how many render passes have begun and ended, and how many of the steps it
+    //** queues for the main thread and its worker threads have run.)
     //**
     //** @returns(One line of text.)
     function StateText: String;
@@ -541,34 +556,51 @@ function IsOffscreenPass(const APass: TObject): Boolean;
 implementation
 
 uses
-  System.Math, System.Threading
+  System.Math, System.Threading, System.Generics.Collections
   {$IFDEF POSIX}
   , Posix.Dlfcn
   {$ENDIF}
   ;
 
-// Shared between the pass and the deliveries it queues, so a delivery that
-// runs after the pass has been freed can tell, and do nothing.
+// Shared between the pass and the steps it leaves for the main thread, so
+// a step that runs after the pass has been freed can tell, and do nothing.
+// It also holds those steps: each is posted here and the main thread's queue
+// is asked to run them, but Poll can run them too, as the queue has been
+// seen to hold them up for seconds while a viewport draws every frame.
 type
   IAliveFlag = interface
     ['{6C0F9C2E-6A57-4E0E-9B7C-3A1F4F7D2B11}']
     function IsAlive: Boolean;
     procedure Kill;
+    procedure Post(const AStep: TThreadProcedure);
+    function Take(out AStep: TThreadProcedure): Boolean;
   end;
 
   TAliveFlag = class(TInterfacedObject, IAliveFlag)
   private
     FAlive: Boolean;
+    FSteps: TThreadList<TThreadProcedure>;
   public
     constructor Create;
+    destructor Destroy; override;
     function IsAlive: Boolean;
     procedure Kill;
+    procedure Post(const AStep: TThreadProcedure);
+    function Take(out AStep: TThreadProcedure): Boolean;
   end;
 
 constructor TAliveFlag.Create;
 begin
   inherited Create;
   FAlive := True;
+  FSteps := TThreadList<TThreadProcedure>.Create;
+  FSteps.Duplicates := dupAccept;   // each post is a step of its own
+end;
+
+destructor TAliveFlag.Destroy;
+begin
+  FSteps.Free;
+  inherited;
 end;
 
 function TAliveFlag.IsAlive: Boolean;
@@ -579,6 +611,62 @@ end;
 procedure TAliveFlag.Kill;
 begin
   FAlive := False;
+  FSteps.Clear;
+end;
+
+// Any thread
+procedure TAliveFlag.Post(const AStep: TThreadProcedure);
+begin
+  if FAlive then
+    FSteps.Add(AStep);
+end;
+
+// Any thread: the oldest step, taken off the list
+function TAliveFlag.Take(out AStep: TThreadProcedure): Boolean;
+var
+  List: TList<TThreadProcedure>;
+begin
+  AStep := nil;
+  List := FSteps.LockList;
+  try
+    Result := List.Count > 0;
+    if Result then
+    begin
+      AStep := List[0];
+      List.Delete(0);
+    end;
+  finally
+    FSteps.UnlockList;
+  end;
+end;
+
+// Main thread: runs the steps posted, oldest first, until there are none
+// or the pass has been freed
+function RunSteps(const AAlive: IAliveFlag): Boolean;
+var
+  Step: TThreadProcedure;
+begin
+  Result := False;
+  while AAlive.IsAlive and AAlive.Take(Step) do
+  begin
+    Result := True;
+    Step();
+  end;
+end;
+
+// Any thread: posts AStep, and asks the main thread's queue to run it; Poll
+// runs it if the queue has not first
+procedure PostStep(const AAlive: IAliveFlag; const AStep: TThreadProcedure);
+var
+  Alive: IAliveFlag;
+begin
+  Alive := AAlive;
+  Alive.Post(AStep);
+  System.Classes.TThread.ForceQueue(nil,
+    procedure
+    begin
+      RunSteps(Alive);
+    end);
 end;
 
 // OpenGL is reached directly, without platform header units: every function
@@ -1218,6 +1306,11 @@ begin
     ApplyTargetSize;
 end;
 
+function TSprite3DOffscreen.Poll: Boolean;
+begin
+  Result := RunSteps(FAlive as IAliveFlag);
+end;
+
 function TSprite3DOffscreen.StateText: String;
 const
   STAGES: array[STAGE_OPAQUE..STAGE_FRAMES] of String = ('opaque', 'iterations', 'frames');
@@ -1229,9 +1322,11 @@ begin
   else
     Stage := IntToStr(FStage);
   Result := Format('busy %s, pending %s, stage %s, drawing %d of %d, iterations %d, ' +
-    'enabled %s, verifying %s, render passes begun %d, ended %d', [BoolToStr(FBusy, True),
+    'enabled %s, verifying %s, render passes begun %d, ended %d, switch-offs run %d, ' +
+    'workers begun %d, ended %d, results run %d, deliveries run %d', [BoolToStr(FBusy, True),
     BoolToStr(FPending, True), Stage, FIndex + 1, Length(FColours), Iterations,
-    BoolToStr(Enabled, True), BoolToStr(FVerifyClear, True), FBeginRenders, FEndRenders]);
+    BoolToStr(Enabled, True), BoolToStr(FVerifyClear, True), FBeginRenders, FEndRenders,
+    FSwitchOffs, FWorkerStarts, FWorkerEnds, FResultRuns, FDeliverRuns]);
 end;
 
 function TSprite3DOffscreen.Grab(const AOnGrabbed: TSprite3DGrabProc): Boolean;
@@ -1243,6 +1338,11 @@ begin
   FBusy := True;
   FBeginRenders := 0;
   FEndRenders := 0;
+  FSwitchOffs := 0;
+  FWorkerStarts := 0;
+  FWorkerEnds := 0;
+  FResultRuns := 0;
+  FDeliverRuns := 0;
   {$IFDEF S3D_SCREENSHOT_GRAB}
   GrabScreenshot;   // reports through Deliver, as the render does
   Exit;
@@ -1719,7 +1819,7 @@ begin
       if not Me.Grab(Callback) and Assigned(Callback) then
         Callback(nil, 'The grab could not be started again with smaller drawings.');
     end;
-  System.Classes.TThread.ForceQueue(nil, Step);
+  PostStep(Alive, Step);
 end;
 
 // An overscanned matte came back wholly transparent, which a GPU that could
@@ -1758,7 +1858,7 @@ begin
           Callback(nil, 'The grab could not be started again to check it.');
       end;
     end;
-  System.Classes.TThread.ForceQueue(nil, Step);
+  PostStep(Alive, Step);
 end;
 
 // Every background has been drawn: learn the output's encoding if this grab
@@ -1830,7 +1930,7 @@ begin
     var Missed := FKeepOverscanFile;
     var Factor := FOverscan;
     FKeepOverscanFile := String.Empty;
-    System.Classes.TThread.ForceQueue(nil,
+    PostStep(Alive,
       procedure
       begin
         if Alive.IsAlive and Assigned(Me.FOnOverscanKept) then
@@ -1842,10 +1942,13 @@ begin
   // Nothing is pending until the next drawing is started, so the pass can
   // stop drawing every frame while the worker is busy; it cannot be
   // switched off from inside its own render, so from the main queue
-  System.Classes.TThread.ForceQueue(nil,
+  PostStep(Alive,
     procedure
     begin
-      if Alive.IsAlive and not Me.FPending then
+      if not Alive.IsAlive then
+        Exit;
+      Inc(Me.FSwitchOffs);
+      if not Me.FPending then
         Me.Enabled := False;
     end);
   TTask.Run(
@@ -1855,6 +1958,8 @@ begin
       Failed, TooSmall, StillClear: Boolean;
       Error: String;
     begin
+      if Alive.IsAlive then
+        AtomicIncrement(Me.FWorkerStarts);
       Failed := False;
       TooSmall := False;
       StillClear := False;
@@ -1889,9 +1994,13 @@ begin
         on E: Exception do
           Error := E.Message;
       end;
-      System.Classes.TThread.Queue(nil,
+      if Alive.IsAlive then
+        AtomicIncrement(Me.FWorkerEnds);
+      PostStep(Alive,
         procedure
         begin
+          if Alive.IsAlive then
+            Inc(Me.FResultRuns);
           if not Alive.IsAlive or not Me.FBusy then
             Exit;   // freed or cancelled meanwhile
           // Kept as drawn, before anything else is done with the grab
@@ -1990,7 +2099,7 @@ begin
           Exit;   // freed or cancelled meanwhile
         Me.StartDrawings;
       end;
-    System.Classes.TThread.ForceQueue(nil, Step);
+    PostStep(Alive, Step);
     Exit;
   end;
 
@@ -2042,7 +2151,7 @@ begin
       Me.FPending := True;
       Me.Viewport.Invalidate;
     end;
-  System.Classes.TThread.ForceQueue(nil, Step);
+  PostStep(Alive, Step);
 end;
 
 // Turns the read pixels, if any, into the bitmap for the waiting procedure
@@ -2233,6 +2342,7 @@ begin
       try
         if not Alive.IsAlive then
           Exit;   // the pass was freed; so, probably, is whoever asked
+        Inc(Me.FDeliverRuns);
         Me.FBusy := False;
         Me.Enabled := False;
 
@@ -2265,7 +2375,7 @@ begin
       end;
     end;
   // Qualified, in case a unit in the uses clause declares its own TThread
-  System.Classes.TThread.ForceQueue(nil, Step);
+  PostStep(Alive, Step);
 end;
 
 initialization

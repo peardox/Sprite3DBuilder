@@ -480,9 +480,17 @@ type
     FOffscreen: TSprite3DOffscreen;
     //** @abstract(Starts each grab THUMBNAIL_SETTLE_MS after its model is loaded.)
     FSettleTimer: TTimer;
-    //** @abstract(Starts a grab again that has not come back in GRAB_TIMEOUT_MS, and gives
-    //** up after GRAB_TRIES, so one model that never draws does not stop the rest.)
+    //** @abstract(Every GRAB_POLL_MS while a grab is under way: runs what is queued for the
+    //** main thread, which a busy viewport can hold up, then starts a grab again that has
+    //** not come back in GRAB_TIMEOUT_MS, and gives up after GRAB_TRIES.)
     FGrabTimer: TTimer;
+    //** @abstract(Times the try of the grab under way, for GRAB_TIMEOUT_MS.)
+    FGrabWatch: TStopwatch;
+    //** @abstract(How many times FGrabTimer has polled the grab (TSprite3DOffscreen.Poll) in
+    //** this try, and how many of those ran something, for the log.)
+    FPumps: Integer;
+    //** @abstract(See FPumps.)
+    FPumpsUseful: Integer;
     //** @abstract(How many times the grab of the thumbnail being made has been started.)
     FGrabTries: Integer;
     //** @abstract(Runs MakeNext on a later main-loop turn; see MakeNextLater. Owned by the
@@ -757,9 +765,10 @@ type
     //**
     //** @returns(The text.)
     function SourcesText: String;
-    //** @abstract(The folder a folder dialog starts in: the last chosen, or the assets folder.)
+    //** @abstract(The folder a folder dialog starts in: the last chosen, or the nearest
+    //** folder above it that is still there.)
     //**
-    //** @returns(The folder.)
+    //** @returns(The folder; empty, for the dialog's own choice, if none is.)
     function StartFolder: String;
     //** @abstract(Makes the new collection of FNewSources called AName, or renames the open
     //** one, as AAsk says; a name another collection has is refused.)
@@ -1184,9 +1193,12 @@ type
     //**
     //** @param(Sender FSettleTimer.)
     procedure SettleTimerTimer(Sender: TObject);
-    //** @abstract(Logs how the grab under way stands, then starts it again, or after
-    //** GRAB_TRIES gives up: passes over the model, without a thumbnail, and goes on with the
-    //** next. While the form is minimised, when nothing is drawn, it waits on instead.)
+    //** @abstract(Runs the grab's steps for the main thread (TSprite3DOffscreen.Poll): they
+    //** are queued too, but a viewport drawing every frame can keep the queue from being run
+    //** for seconds. Then, once the try is GRAB_TIMEOUT_MS old, logs how
+    //** the grab stands and starts it again, or after GRAB_TRIES gives up: passes over the
+    //** model, without a thumbnail, and goes on with the next. While the form is minimised,
+    //** when nothing is drawn, the time does not count.)
     //**
     //** @param(Sender FGrabTimer.)
     procedure GrabTimerTimer(Sender: TObject);
@@ -1300,7 +1312,8 @@ type
     //** (ClearAssetLibrary), and shows it empty.)
     //**
     //** Everything under way is stopped first: a thumbnail being made, the hashing, an
-    //** artist import. What was done goes to OnLog. The model files are never touched.
+    //** artist import. What was done goes to OnLog. The model files are never touched. The
+    //** last folder chosen and the preferred format are kept.
     procedure ClearLibrary;
     //** @abstract(Every model shown, in name order.)
     property Entries: TArray<TAssetEntry> read FEntries;
@@ -1388,6 +1401,9 @@ const
   //** @abstract(How many times a thumbnail's grab is started before the model is passed
   //** over.)
   GRAB_TRIES = 3;
+  //** @abstract(How often, in milliseconds, FGrabTimer runs what is queued while a grab is
+  //** under way.)
+  GRAB_POLL_MS = 50;
   //** @abstract(The import log's name, in the settings folder; see ImportLogFile.)
   IMPORT_LOG_FILE_NAME = 'library-import.log';
   //** @abstract(The name of the file naming the model in the viewport; see LoadingFile.)
@@ -1526,7 +1542,7 @@ begin
 
   FGrabTimer := TTimer.Create(Self);
   FGrabTimer.Enabled := False;
-  FGrabTimer.Interval := GRAB_TIMEOUT_MS;
+  FGrabTimer.Interval := GRAB_POLL_MS;
   FGrabTimer.OnTimer := GrabTimerTimer;
 
   FNextTimer := TTimer.Create(Self);
@@ -1862,10 +1878,18 @@ begin
 end;
 
 function TAssetsForm.StartFolder: String;
+var
+  Up: String;
 begin
   Result := OSFriendlyPath(FLibrary.LastFolder);
-  if (Result = String.Empty) or not DirectoryExists(Result) then
-    Result := AssetsFolder;
+  // A folder since moved or renamed: the nearest one above it
+  while (Result <> String.Empty) and not DirectoryExists(Result) do
+  begin
+    Up := ExtractFileDir(ExcludeTrailingPathDelimiter(Result));
+    if SameText(Up, Result) then
+      Up := String.Empty;
+    Result := Up;
+  end;
 end;
 
 function TAssetsForm.ChooseSources(const ARoots: TArray<String>):
@@ -2315,7 +2339,8 @@ begin
   except
     // Added to instead
   end;
-  DebugLog('Artist import: ' + Title + ' from ' + String.Join(', ', Roots));
+  DebugLog('Artist import: ' + Title + ' from ' + String.Join(', ', Roots) + '; program ' +
+    'built ' + FormatDateTime('yyyy-mm-dd hh:nn:ss', TFile.GetLastWriteTime(ParamStr(0))));
   FLibrary.LastFolder := Roots[0];
   SaveLibrary;
   // Each folder directly inside, in name order, under the artist shown,
@@ -2668,8 +2693,12 @@ end;
 
 procedure TAssetsForm.ClearLibrary;
 var
-  Error: String;
+  Error, Folder, Preferred: String;
 begin
+  // Kept: where the user looks for models, and the format they like
+  LoadLibrary;
+  Folder := FLibrary.LastFolder;
+  Preferred := FLibrary.PreferredFormat;
   StopBulk('the library cleared');
   StopMaking;
   Inc(FScanId);   // drops hashing still under way
@@ -2679,7 +2708,10 @@ begin
     Log('Assets: the library is cleared, but some could not be deleted: ' + Error);
   // Empty from here on; nothing of before it to move in
   FLibrary := Default(TSprite3DAssetLibrary);
+  FLibrary.LastFolder := Folder;
+  FLibrary.PreferredFormat := Preferred;
   FLibraryLoaded := True;
+  SaveLibrary;
   FArtistId := String.Empty;
   FIconBitmaps.Clear;
   OpenCollection(String.Empty);
@@ -4508,6 +4540,9 @@ begin
     Exit;
   DebugLog('grabbing ' + FEntries[FMaking].Meta.Name);
   FGrabTries := 1;
+  FGrabWatch := TStopwatch.StartNew;
+  FPumps := 0;
+  FPumpsUseful := 0;
   if not FOffscreen.Grab(GrabDone(FMaking, FScanId)) then
   begin
     Log('Assets: can''t start the thumbnail of ' + FEntries[FMaking].Meta.Name);
@@ -4527,19 +4562,34 @@ begin
     FGrabTimer.Enabled := False;
     Exit;
   end;
+  // The grab's steps and result, which the main thread's queue can hold up
+  // while the viewport draws; its result stops this timer
+  Inc(FPumps);
+  if FOffscreen.Poll then
+    Inc(FPumpsUseful);
+  if not FGrabTimer.Enabled or (FMaking < 0) or (FMaking > High(FEntries)) then
+    Exit;
   // Nothing is drawn while minimised: the grab goes on once it is shown
   if WindowState = TWindowState.wsMinimized then
   begin
-    DebugLog('waiting for ' + FEntries[FMaking].Meta.Name + ': the Library is minimised');
+    if FGrabWatch.ElapsedMilliseconds >= GRAB_TIMEOUT_MS then
+      DebugLog('waiting for ' + FEntries[FMaking].Meta.Name + ': the Library is minimised');
+    FGrabWatch := TStopwatch.StartNew;
     Exit;
   end;
-  DebugLog(Format('grab %d of %s not back after %d s: %s', [FGrabTries,
-    FEntries[FMaking].Meta.Name, GRAB_TIMEOUT_MS div 1000, FOffscreen.StateText]));
+  if FGrabWatch.ElapsedMilliseconds < GRAB_TIMEOUT_MS then
+    Exit;
+  DebugLog(Format('grab %d of %s not back after %d s: %s; polled %d times, %d ' +
+    'with something to run', [FGrabTries, FEntries[FMaking].Meta.Name, GRAB_TIMEOUT_MS div 1000,
+    FOffscreen.StateText, FPumps, FPumpsUseful]));
   FOffscreen.Cancel;
   if FGrabTries < GRAB_TRIES then
   begin
     Inc(FGrabTries);
     DebugLog('grabbing ' + FEntries[FMaking].Meta.Name + ' again');
+    FGrabWatch := TStopwatch.StartNew;
+    FPumps := 0;
+    FPumpsUseful := 0;
     FViewport.Invalidate;
     if FOffscreen.Grab(GrabDone(FMaking, FScanId)) then
       Exit;   // FGrabTimer runs on for this try
